@@ -25,6 +25,17 @@
     return node;
   };
 
+  // Swap a container's children around `keep` without detaching it: re-rendering
+  // after every autosave must not blur the text box the reviewer is typing in.
+  const rebuild = (parent, keep, before, after) => {
+    for (const c of [...parent.children]) if (c !== keep) c.remove();
+    if (keep && keep.parentNode !== parent) parent.append(keep);
+    if (keep) keep.before(...before);
+    else parent.append(...before);
+    parent.append(...after);
+  };
+  const typing = (box) => box === document.activeElement;
+
   const items = () => [...document.querySelectorAll("[data-item]")];
   const defaultFor = (item) => {
     const choices = (item.dataset.choices || "").split("|").filter(Boolean);
@@ -80,8 +91,8 @@
       slot = el("div", { class: "vd-slot", "data-for": key });
       item.after(slot);
     }
-    slot.replaceChildren();
     const current = answer(key);
+    const before = [];
     const choices = (item.dataset.choices || "").split("|").filter(Boolean);
     if (choices.length) {
       const def = defaultFor(item);
@@ -99,16 +110,18 @@
         );
         group.append(btn);
       }
-      slot.append(group);
+      before.push(group);
     }
+    let box = null;
     if ("input" in item.dataset) {
-      const box = el("textarea", {
-        class: "vd-text",
-        placeholder: item.dataset.input || "your answer",
-        oninput: (e) => setAnswer(key, { text: e.target.value }),
-      });
-      box.value = current.text || "";
-      slot.append(box);
+      box =
+        slot.querySelector(":scope > textarea") ||
+        el("textarea", {
+          class: "vd-text",
+          placeholder: item.dataset.input || "your answer",
+          oninput: (e) => setAnswer(key, { text: e.target.value }),
+        });
+      if (!typing(box)) box.value = current.text || "";
     }
     const mine = state.comments.filter((c) => c.item === key);
     const noteBtn = el(
@@ -116,8 +129,9 @@
       { type: "button", class: "vd-note", onclick: () => compose(item, key) },
       mine.length ? `notes (${mine.length})` : "note"
     );
-    slot.append(noteBtn);
-    if (current.defaulted) slot.append(el("span", { class: "vd-tag" }, "accepted recommendation"));
+    const after = [noteBtn];
+    if (current.defaulted) after.push(el("span", { class: "vd-tag" }, "accepted recommendation"));
+    rebuild(slot, box, before, after);
   };
 
   const acceptAll = (scope) => {
@@ -212,39 +226,36 @@
 
   // --- toolbar -------------------------------------------------------------
 
-  let bar, statusEl;
+  let bar, statusEl, general;
   const status = (text) => { if (statusEl) statusEl.textContent = text; };
 
   const renderBar = () => {
     if (!bar) {
       bar = el("div", { class: "vd-bar" });
+      general = el("textarea", {
+        class: "vd-text vd-general",
+        placeholder: "general notes for the agent",
+        oninput: (e) => queueSave({ general: e.target.value }),
+      });
       document.body.append(bar);
     }
-    bar.replaceChildren();
     const done = state.status === "done";
     const closed = state.status === "closed";
-    const general = el("textarea", {
-      class: "vd-text vd-general",
-      placeholder: "general notes for the agent",
-      oninput: (e) => queueSave({ general: e.target.value }),
-    });
-    general.value = state.general || "";
+    if (!typing(general)) general.value = state.general || "";
     const answered = items().filter((i) => answer(i.dataset.item).choice || answer(i.dataset.item).text).length;
     const total = items().filter((i) => i.dataset.choices || "input" in i.dataset).length;
     statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "done - the agent has your answers" : `${answered}/${total} answered · ${state.comments.length} notes`);
-    bar.append(
-      el("div", { class: "vd-row" },
-        el("strong", {}, state.title),
-        statusEl
-      ),
+    rebuild(
+      bar,
       general,
-      el("div", { class: "vd-row" },
+      [el("div", { class: "vd-row" }, el("strong", {}, state.title), statusEl)],
+      [el("div", { class: "vd-row" },
         el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: () => { commentMode = !commentMode; document.body.classList.toggle("vd-comment-mode", commentMode); renderBar(); } }, commentMode ? "tap anything to add a note…" : "comment mode"),
         el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations"),
         closed ? "" : done
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
           : el("button", { type: "button", class: "vd-primary", onclick: () => { acceptAll(document); flush().then(() => put({ status: "done" })); } }, "Done")
-      )
+      )]
     );
   };
 

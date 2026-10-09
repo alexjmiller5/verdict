@@ -97,5 +97,8 @@ uv, pydantic-settings, httpx, structlog, pytest, Ruff. `just test` runs the
 suite against an in-process server; `just check` runs Ruff and `nix flake
 check`; `just dev` serves with your environment. Keep the uv environment
 outside the (iCloud) checkout: the justfile sets `UV_PROJECT_ENVIRONMENT` and
-`PYTHONPYCACHEPREFIX`. The browser client has no unit tests; verify it in a
-real browser against `just dev` after changing `static/`.
+`PYTHONPYCACHEPREFIX`. The browser client's one test drives headless Chrome
+(`--dump-dom`; skipped when no Chrome is found, `CHROME` overrides the path);
+still verify it in a real browser against `just dev` after changing `static/`.
+Re-renders after an autosave must never detach the text box being typed in
+(`rebuild` in `verdict.js`).

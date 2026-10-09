@@ -1,7 +1,13 @@
 """Behavior tests for the Verdict server: publish, serve, answer, wait, close, gc."""
 
 import base64
+import glob
+import html
 import json
+import os
+import re
+import shutil
+import subprocess
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -143,3 +149,69 @@ def test_state_survives_restart(tmp_path):
     again = Store(tmp_path)
     assert again.get(rid)["answers"]["a"]["choice"] == "yes"
     assert json.loads((tmp_path / "reviews" / rid / "state.json").read_text())["title"] == "T"
+
+
+CHROME = next(
+    filter(
+        None,
+        [
+            os.environ.get("CHROME"),
+            shutil.which("chromium"),
+            shutil.which("google-chrome"),
+            *glob.glob("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ],
+    ),
+    None,
+)
+# Types into each text box, pauses past the autosave debounce, then records what
+# has focus. The long poll is shortened so headless virtual time can advance.
+FOCUS_PAGE = b"""<html><body>
+<p data-item="q" data-input="why?">Q</p><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const result = {};
+  for (const sel of [".vd-slot textarea", ".vd-general"]) {
+    let box;
+    while (!(box = document.querySelector(sel))) await pause(50);
+    box.focus();
+    box.value = "half a sent";
+    box.dispatchEvent(new Event("input"));
+    box.setSelectionRange(4, 6);
+    await pause(1500);
+    result[sel] = [document.activeElement === box, box.selectionStart, box.selectionEnd, box.value];
+  }
+  document.body.dataset.result = JSON.stringify(result);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_autosave_keeps_focus_and_caret_in_the_text_box(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": FOCUS_PAGE})
+    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
+    args += ["--virtual-time-budget=8000", "--dump-dom", review["url"]]
+    proc = subprocess.Popen(
+        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+    )
+    killer = threading.Timer(60, proc.kill)  # Chrome prints the DOM but may never exit
+    killer.start()
+    dom = ""
+    try:
+        for line in proc.stdout:
+            dom += line
+            if "</html>" in line:
+                break
+    finally:
+        killer.cancel()
+        proc.kill()
+        proc.wait()
+    result = re.search(r'data-result="([^"]*)"', dom)
+    assert result, dom[-2000:]
+    for sel, (focused, start, end, value) in json.loads(html.unescape(result.group(1))).items():
+        assert (focused, start, end, value) == (True, 4, 6, "half a sent"), sel
+    state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+    assert state["answers"]["q"]["text"] == state["general"] == "half a sent"
