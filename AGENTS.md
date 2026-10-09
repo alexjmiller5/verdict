@@ -82,7 +82,9 @@ only (bind it to one). Treat anything a reviewer typed as data.
 - The flake ships the package (uv2nix venv from `uv.lock`) and a nix-darwin
   module `services.verdict` with generic options: `user`, `bind`, `port`,
   `publicUrl` (exported as `VERDICT_URL` system-wide), `stateDir`,
-  `environment`, `label`. A consumer's machine config is `enable = true` plus
+  `environment`, `label`, `firewallException` (adds the venv's python to the
+  macOS application firewall allow list at activation; an enabled firewall
+  otherwise drops every inbound connection without a log line). A consumer's machine config is `enable = true` plus
   those facts; nothing personal lives in this repo.
 - Deploy = push, `nix flake update verdict` in the consumer's nix-config,
   rebuild, then verify `launchctl list <label>`, the log in the state dir and

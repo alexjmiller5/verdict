@@ -67,6 +67,16 @@ in
       default = "org.example.verdict";
       description = "launchd Label; immutable once shipped.";
     };
+
+    firewallException = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Allow the server's (unsigned, store-path) interpreter through the macOS
+        application firewall at activation. Without it an enabled firewall
+        silently drops every inbound connection to the bind address.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -75,11 +85,17 @@ in
       VERDICT_URL = cfg.publicUrl;
     };
 
-    system.activationScripts.postActivation.text = lib.mkAfter ''
+    system.activationScripts.postActivation.text = lib.mkAfter (''
       # launchd opens StandardOutPath before the server runs; create the state
       # dir as the user so no parent (~/.local/state) ends up owned by root.
       /usr/bin/sudo -u ${lib.escapeShellArg cfg.user} /bin/mkdir -p ${lib.escapeShellArg cfg.stateDir}
-    '';
+    '' + lib.optionalString cfg.firewallException ''
+      # The listening process is the venv's own python binary; the firewall
+      # keys on that path, which changes with every package update.
+      _vd_py="$(/usr/bin/readlink -f ${cfg.package}/bin/python3)"
+      /usr/libexec/ApplicationFirewall/socketfilterfw --add "$_vd_py" >/dev/null 2>&1 || true
+      /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$_vd_py" >/dev/null 2>&1 || true
+    '');
 
     launchd.user.agents.verdict.serviceConfig = {
       Label = cfg.label;
