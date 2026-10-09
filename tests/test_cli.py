@@ -1,7 +1,12 @@
 """The agent-facing CLI against a live server."""
 
 import json
+import os
+import socket
+import subprocess
+import sys
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -76,6 +81,63 @@ def test_wait_returns_answers_when_done(base, review_dir, capsys):
     code, out, _ = run(capsys, "wait", rid, "--timeout", "10")
     assert code == 0
     assert json.loads(out)["answers"]["a"]["choice"] == "go"
+
+
+def test_wait_rides_out_a_server_restart(tmp_path, monkeypatch, capsys):
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    url = f"http://127.0.0.1:{port}"
+    env = os.environ | {
+        "VERDICT_BIND": "127.0.0.1",
+        "VERDICT_PORT": str(port),
+        "VERDICT_STATE_DIR": str(tmp_path / "state"),
+    }
+
+    def serve():
+        proc = subprocess.Popen([sys.executable, "-m", "verdict.main", "serve"], env=env)
+        for _ in range(100):
+            try:
+                httpx.get(f"{url}/api/reviews")
+                return proc
+            except httpx.TransportError:
+                time.sleep(0.1)
+        raise AssertionError("server did not start")
+
+    servers = [serve()]
+    rid = httpx.post(f"{url}/api/reviews", json={"title": "T", "files": {"index.html": ""}}).json()[
+        "id"
+    ]
+    monkeypatch.setenv("VERDICT_URL", url)
+
+    def restart_then_finish():  # a deploy kills the server mid-wait, then starts it again
+        time.sleep(0.5)
+        servers[0].kill()
+        servers[0].wait()
+        time.sleep(1)
+        servers.append(serve())
+        httpx.put(f"{url}/api/reviews/{rid}/state", json={"status": "done"})
+
+    restart = threading.Thread(target=restart_then_finish)
+    restart.start()
+    try:
+        code, out, err = run(capsys, "wait", rid, "--timeout", "20")
+    finally:
+        restart.join()
+        for proc in servers:
+            proc.kill()
+            proc.wait()
+    assert code == 0 and json.loads(out)["status"] == "done"
+    assert "retrying" in err
+
+
+def test_wait_fails_fast_when_the_server_never_answers(monkeypatch, capsys):
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.setenv("VERDICT_URL", f"http://127.0.0.1:{port}")
+    code, _, err = run(capsys, "wait", "nope", "--timeout", "20")
+    assert code == 5 and "cannot reach the server" in err
 
 
 def test_wait_times_out_with_exit_code(base, review_dir, capsys):

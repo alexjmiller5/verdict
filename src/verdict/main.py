@@ -92,15 +92,25 @@ def wait(args, settings: Settings) -> int:
     host = socket.gethostname()
     with client(settings) as http:
         while True:
-            http.post(f"/api/reviews/{args.id}/waiters", json={"pid": os.getpid(), "host": host})
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 print(f"review {args.id} still open after {args.timeout:g}s", file=sys.stderr)
                 return 3
-            r = http.get(
-                f"/api/reviews/{args.id}",
-                params={"wait": min(WAIT_SLICE, remaining), "version": version},
-            )
+            try:
+                http.post(
+                    f"/api/reviews/{args.id}/waiters", json={"pid": os.getpid(), "host": host}
+                )
+                r = http.get(
+                    f"/api/reviews/{args.id}",
+                    params={"wait": min(WAIT_SLICE, remaining), "version": version},
+                )
+            except httpx.TransportError as err:
+                if version == -1:
+                    raise  # never reached it: a wrong VERDICT_URL fails fast (exit 5)
+                # it answered before, so this is a restart (a deploy): keep waiting
+                print(f"verdict: server unreachable ({err}), retrying", file=sys.stderr)
+                time.sleep(min(2.0, remaining))
+                continue
             if r.status_code == 404:
                 print(f"review {args.id} no longer exists", file=sys.stderr)
                 return 4

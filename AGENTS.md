@@ -55,7 +55,9 @@ choosing it explicitly (Done fills unanswered choices with their defaults).
 `VERDICT_STALE_DAYS` (7) is **stale**: `publish` warns about stale reviews
 on stderr, `list` flags them, `gc` lists them. `wait` registers a heartbeat
 (`waiters`) every long-poll slice and times out after 8 h (exit 3) so an
-abandoned agent session cannot hold a process forever; `gc` forgets waiters
+abandoned agent session cannot hold a process forever. Once it has reached the
+server, `wait` retries through a server restart (a deploy) instead of exiting;
+a server it never reached still fails fast (exit 5). `gc` forgets waiters
 unseen for 2 minutes and SIGTERMs local `verdict wait` processes whose review
 is already done or closed.
 
