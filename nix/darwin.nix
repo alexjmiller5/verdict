@@ -1,8 +1,8 @@
 # nix-darwin module: the Verdict server as a kept-alive launchd user agent
-# (`verdict serve`), plus the `verdict` CLI on PATH for the agents that run
-# on this machine. Options are generic; the consumer supplies the bind
-# address (a private interface, e.g. the host's tailnet IP), the port and,
-# optionally, the URL clients should use.
+# (`verdict serve`). Options are generic; the consumer supplies the bind
+# address (a private interface, e.g. the host's tailnet IP) and the port.
+# Agents get the CLI and VERDICT_URL from the home-manager module (home.nix),
+# on this machine as on any other.
 self:
 { config, lib, pkgs, ... }:
 
@@ -39,16 +39,6 @@ in
       description = "TCP port the server listens on.";
     };
 
-    publicUrl = lib.mkOption {
-      type = lib.types.nullOr lib.types.str;
-      default = null;
-      description = ''
-        Origin clients on this machine should send reviews to; exported
-        system-wide as VERDICT_URL so `verdict publish` works from any shell.
-      '';
-      example = "http://host.example.ts.net:7071";
-    };
-
     stateDir = lib.mkOption {
       type = lib.types.str;
       default = "/Users/${cfg.user}/.local/state/verdict";
@@ -80,11 +70,6 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
-    environment.variables = lib.optionalAttrs (cfg.publicUrl != null) {
-      VERDICT_URL = cfg.publicUrl;
-    };
-
     system.activationScripts.postActivation.text = lib.mkAfter (''
       # launchd opens StandardOutPath before the server runs; create the state
       # dir as the user so no parent (~/.local/state) ends up owned by root.

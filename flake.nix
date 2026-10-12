@@ -47,6 +47,7 @@
       });
 
       darwinModules.default = import ./nix/darwin.nix self;
+      homeModules.default = import ./nix/home.nix self;
 
       checks = forAllSystems (pkgs: {
         cli = pkgs.runCommand "verdict-cli" { } ''

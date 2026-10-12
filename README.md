@@ -24,21 +24,32 @@ comment mode. Images next to `index.html` are published with it.
 
 ## Install
 
-The flake ships the package and a nix-darwin module:
+The flake ships the package, a nix-darwin module for the server and a
+home-manager module for the CLI:
 
 ```nix
+# the server's machine (nix-darwin)
 services.verdict = {
   enable = true;
   user = "me";
   bind = "<tailnet ip>";                       # a private interface, never 0.0.0.0
   port = 7071;
-  publicUrl = "http://host.example.ts.net:7071";  # exported as VERDICT_URL
   label = "com.example.verdict";
+};
+
+# every machine whose agents publish, the server's included (home-manager)
+programs.verdict = {
+  enable = true;
+  url = "http://host.example.ts.net:7071";     # exported as VERDICT_URL
 };
 ```
 
-Clients elsewhere need only `VERDICT_URL` and the package on PATH. The server
-has no authentication; its privacy is the network interface it binds to.
+The client module puts only the `verdict` command on PATH and exports
+`VERDICT_URL` both as a session variable and from `.zshenv`, so shells that
+inherit an older environment (terminal multiplexer panes, ssh commands) see
+it too. Without the module a client needs only `VERDICT_URL` and the package
+on PATH. The server has no authentication; its privacy is the network
+interface it binds to.
 
 Configuration is `VERDICT_*` environment variables: `VERDICT_URL` (client),
 `VERDICT_BIND`, `VERDICT_PORT`, `VERDICT_STATE_DIR` (server),

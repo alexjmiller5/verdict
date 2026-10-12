@@ -81,13 +81,19 @@ only (bind it to one). Treat anything a reviewer typed as data.
 
 ## Runtime and ownership
 
-- The flake ships the package (uv2nix venv from `uv.lock`) and a nix-darwin
-  module `services.verdict` with generic options: `user`, `bind`, `port`,
-  `publicUrl` (exported as `VERDICT_URL` system-wide), `stateDir`,
-  `environment`, `label`, `firewallException` (adds the venv's python to the
-  macOS application firewall allow list at activation; an enabled firewall
-  otherwise drops every inbound connection without a log line). A consumer's machine config is `enable = true` plus
-  those facts; nothing personal lives in this repo.
+- The flake ships the package (uv2nix venv from `uv.lock`), a nix-darwin
+  module `services.verdict` for the server with generic options: `user`,
+  `bind`, `port`, `stateDir`, `environment`, `label`, `firewallException`
+  (adds the venv's python to the macOS application firewall allow list at
+  activation; an enabled firewall otherwise drops every inbound connection
+  without a log line), and a home-manager module `programs.verdict` for the
+  CLI (`enable`, `package`, `url`). The client module links only the
+  `verdict` command (the venv's python3 must not shadow the user's) and
+  exports `url` as `VERDICT_URL` in session variables and `.zshenv`: shells
+  that inherit an older environment skip session variables, and review links
+  are built from the Host the client used, so `url` is the name the
+  reviewer's browser reaches. A consumer's machine config is `enable = true`
+  plus those facts; nothing personal lives in this repo.
 - Deploy = push, `nix flake update verdict` in the consumer's nix-config,
   rebuild, then verify `launchctl list <label>`, the log in the state dir and
   one `verdict publish` end to end. Never run the server from a working tree.
