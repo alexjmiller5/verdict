@@ -228,6 +228,23 @@
 
   let bar, statusEl, general;
   const status = (text) => { if (statusEl) statusEl.textContent = text; };
+  // An agent waiting on this review heartbeats as a waiter (`verdict wait`).
+  const listening = () => (state.waiters || []).some((w) => Date.now() - Date.parse(w.seen) < 120000);
+  const confirmDone = () => {
+    document.querySelectorAll(".vd-confirm").forEach((s) => s.remove());
+    const sheet = el("div", { class: "vd-sheet vd-confirm" });
+    const send = () => { sheet.remove(); acceptAll(document); flush().then(() => put({ status: "done" })); };
+    sheet.append(
+      el("div", { class: "vd-sheet-head" }, "Send your answers to the agent?"),
+      el("div", {}, listening()
+        ? "The agent is listening and gets them right away."
+        : "No agent is listening right now; it reads them the next time it checks."),
+      el("div", { class: "vd-row" },
+        el("button", { type: "button", class: "vd-primary", onclick: send }, "Send"),
+        el("button", { type: "button", onclick: () => sheet.remove() }, "Keep editing"))
+    );
+    document.body.append(sheet);
+  };
   const toggleCommentMode = () => {
     commentMode = !commentMode;
     document.body.classList.toggle("vd-comment-mode", commentMode);
@@ -249,7 +266,7 @@
     if (!typing(general)) general.value = state.general || "";
     const answered = items().filter((i) => answer(i.dataset.item).choice || answer(i.dataset.item).text).length;
     const total = items().filter((i) => i.dataset.choices || "input" in i.dataset).length;
-    statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "done - the agent has your answers" : `${answered}/${total} answered · ${state.comments.length} notes`);
+    statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "sent to the agent" : `${answered}/${total} answered · ${state.comments.length} notes`);
     rebuild(
       bar,
       general,
@@ -259,7 +276,7 @@
         el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations"),
         closed ? "" : done
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
-          : el("button", { type: "button", class: "vd-primary", onclick: () => { acceptAll(document); flush().then(() => put({ status: "done" })); } }, "Done")
+          : el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
       )]
     );
   };

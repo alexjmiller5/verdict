@@ -46,6 +46,9 @@ the review's own published files, so screenshots sit next to `index.html`.
 
 `defaulted: true` means the reviewer accepted the recommendation without
 choosing it explicitly (Done fills unanswered choices with their defaults).
+Done first asks "Send your answers to the agent?" and says whether an agent
+is listening: any waiter (a `verdict wait` heartbeat) seen in the last two
+minutes.
 
 ## Lifecycle and cleanup (built into the CLI)
 

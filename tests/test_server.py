@@ -263,3 +263,64 @@ def test_ctrl_option_c_toggles_comment_mode(server, tmp_path):
     result = re.search(r'data-result="([^"]*)"', dom)
     assert result, dom[-2000:]
     assert json.loads(html.unescape(result.group(1))) == [True, False, False, False]
+
+
+# Done asks first, says whether an agent is listening, and only Send finishes.
+DONE_PAGE = b"""<html><body><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const status = async () => (await (await realFetch(location.pathname.replace("/r/", "/api/reviews/").replace(/\\/$/, ""))).json()).status;
+const button = (text) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+(async () => {
+  while (!button("Done")) await pause(50);
+  button("Done").click();
+  await pause(300);
+  const sheet = document.querySelector(".vd-confirm");
+  const result = { sheet: sheet ? sheet.innerText : null, before: await status() };
+  button("Keep editing").click();
+  result.keptOpen = !document.querySelector(".vd-confirm") && (await status()) === "open";
+  button("Done").click();
+  await pause(300);
+  button("Send").click();
+  await pause(1500);
+  result.after = await status();
+  result.bar = document.querySelector(".vd-status").textContent;
+  document.body.dataset.result = JSON.stringify(result);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("listening", [True, False])
+def test_done_confirms_and_says_whether_the_agent_is_listening(server, tmp_path, listening):
+    base, _ = server
+    review = publish(base, files={"index.html": DONE_PAGE})
+    if listening:
+        httpx.post(f"{base}/api/reviews/{review['id']}/waiters", json={"pid": 1, "host": "h"})
+    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
+    args += ["--virtual-time-budget=8000", "--dump-dom", review["url"]]
+    proc = subprocess.Popen(
+        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+    )
+    killer = threading.Timer(60, proc.kill)
+    killer.start()
+    dom = ""
+    try:
+        for line in proc.stdout:
+            dom += line
+            if "</html>" in line:
+                break
+    finally:
+        killer.cancel()
+        proc.kill()
+        proc.wait()
+    found = re.search(r'data-result="([^"]*)"', dom)
+    assert found, dom[-2000:]
+    result = json.loads(html.unescape(found.group(1)))
+    assert "Send your answers to the agent?" in result["sheet"]
+    assert ("listening and gets them right away" in result["sheet"]) is listening
+    assert result["before"] == "open" and result["keptOpen"]
+    assert result["after"] == "done"
+    assert result["bar"] == "sent to the agent"
