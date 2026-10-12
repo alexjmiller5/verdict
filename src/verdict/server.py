@@ -213,9 +213,14 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
             log.info("published", review=rid, title=data.get("title"), files=len(files))
             self.send_json(201, {"id": rid, "url": url})
 
-    server = ThreadingHTTPServer((host, port), Handler)
-    server.daemon_threads = True
-    return server
+    class Server(ThreadingHTTPServer):
+        daemon_threads = True
+
+        def handle_error(self, request, client_address):
+            if not isinstance(sys.exception(), ConnectionError):  # a client hung up: routine
+                super().handle_error(request, client_address)
+
+    return Server((host, port), Handler)
 
 
 def serve(store: Store, host: str, port: int) -> None:

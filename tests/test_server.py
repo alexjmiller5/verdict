@@ -7,6 +7,8 @@ import json
 import os
 import re
 import shutil
+import socket
+import struct
 import subprocess
 import threading
 import time
@@ -163,6 +165,32 @@ CHROME = next(
     ),
     None,
 )
+
+
+def browser_result(url, tmp_path, budget):
+    """Load url in headless Chrome; return the JSON the page left in body[data-result]."""
+    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
+    args += [f"--virtual-time-budget={budget}", "--dump-dom", url]
+    proc = subprocess.Popen(
+        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+    )
+    killer = threading.Timer(60, proc.kill)  # Chrome prints the DOM but may never exit
+    killer.start()
+    dom = ""
+    try:
+        for line in proc.stdout:
+            dom += line
+            if "</html>" in line:
+                break
+    finally:
+        killer.cancel()
+        proc.kill()
+        proc.wait()
+    found = re.search(r'data-result="([^"]*)"', dom)
+    assert found, dom[-2000:]
+    return json.loads(html.unescape(found.group(1)))
+
+
 # Types into each text box, pauses past the autosave debounce, then records what
 # has focus. The long poll is shortened so headless virtual time can advance.
 FOCUS_PAGE = b"""<html><body>
@@ -192,26 +220,8 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 def test_autosave_keeps_focus_and_caret_in_the_text_box(server, tmp_path):
     base, _ = server
     review = publish(base, files={"index.html": FOCUS_PAGE})
-    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
-    args += ["--virtual-time-budget=8000", "--dump-dom", review["url"]]
-    proc = subprocess.Popen(
-        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-    )
-    killer = threading.Timer(60, proc.kill)  # Chrome prints the DOM but may never exit
-    killer.start()
-    dom = ""
-    try:
-        for line in proc.stdout:
-            dom += line
-            if "</html>" in line:
-                break
-    finally:
-        killer.cancel()
-        proc.kill()
-        proc.wait()
-    result = re.search(r'data-result="([^"]*)"', dom)
-    assert result, dom[-2000:]
-    for sel, (focused, start, end, value) in json.loads(html.unescape(result.group(1))).items():
+    result = browser_result(review["url"], tmp_path, 8000)
+    for sel, (focused, start, end, value) in result.items():
         assert (focused, start, end, value) == (True, 4, 6, "half a sent"), sel
     state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
     assert state["answers"]["q"]["text"] == state["general"] == "half a sent"
@@ -243,26 +253,8 @@ const on = () => document.body.classList.contains("vd-comment-mode");
 def test_ctrl_option_c_toggles_comment_mode(server, tmp_path):
     base, _ = server
     review = publish(base, files={"index.html": KEY_PAGE})
-    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
-    args += ["--virtual-time-budget=5000", "--dump-dom", review["url"]]
-    proc = subprocess.Popen(
-        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-    )
-    killer = threading.Timer(60, proc.kill)
-    killer.start()
-    dom = ""
-    try:
-        for line in proc.stdout:
-            dom += line
-            if "</html>" in line:
-                break
-    finally:
-        killer.cancel()
-        proc.kill()
-        proc.wait()
-    result = re.search(r'data-result="([^"]*)"', dom)
-    assert result, dom[-2000:]
-    assert json.loads(html.unescape(result.group(1))) == [True, False, False, False]
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert result == [True, False, False, False]
 
 
 # Done asks first, says whether an agent is listening, and only Send finishes.
@@ -299,28 +291,66 @@ def test_done_confirms_and_says_whether_the_agent_is_listening(server, tmp_path,
     review = publish(base, files={"index.html": DONE_PAGE})
     if listening:
         httpx.post(f"{base}/api/reviews/{review['id']}/waiters", json={"pid": 1, "host": "h"})
-    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
-    args += ["--virtual-time-budget=8000", "--dump-dom", review["url"]]
-    proc = subprocess.Popen(
-        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
-    )
-    killer = threading.Timer(60, proc.kill)
-    killer.start()
-    dom = ""
-    try:
-        for line in proc.stdout:
-            dom += line
-            if "</html>" in line:
-                break
-    finally:
-        killer.cancel()
-        proc.kill()
-        proc.wait()
-    found = re.search(r'data-result="([^"]*)"', dom)
-    assert found, dom[-2000:]
-    result = json.loads(html.unescape(found.group(1)))
+    result = browser_result(review["url"], tmp_path, 8000)
     assert "Send your answers to the agent?" in result["sheet"]
     assert ("listening and gets them right away" in result["sheet"]) is listening
     assert result["before"] == "open" and result["keptOpen"]
     assert result["after"] == "done"
     assert result["bar"] == "sent to the agent"
+
+
+# A hidden tab must not park a long poll: browsers open six connections per
+# host, so a few background review tabs would otherwise stall every save and
+# page load until one of their polls times out.
+HIDDEN_PAGE = b"""<html><body><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+const polls = [];
+let firstPoll;
+const polled = new Promise((r) => { firstPoll = r; });
+window.fetch = (url, opts = {}) => {
+  if (String(url).includes("wait=")) {
+    const poll = { aborted: false };
+    polls.push(poll);
+    opts.signal?.addEventListener("abort", () => { poll.aborted = true; });
+    firstPoll();
+  }
+  return realFetch(String(url).replace(/wait=\\d+/, "wait=2"), opts);
+};
+let hidden = false;
+Object.defineProperty(document, "hidden", { get: () => hidden });
+Object.defineProperty(document, "visibilityState", { get: () => (hidden ? "hidden" : "visible") });
+const show = (visible) => { hidden = !visible; document.dispatchEvent(new Event("visibilitychange")); };
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  await polled;  // a microtask: timers stall while a fetch is pending in virtual time
+  show(false);
+  const result = { aborted: polls[0].aborted, before: polls.length };
+  await pause(5000);
+  result.whileHidden = polls.length - result.before;
+  show(true);
+  await pause(200);
+  result.resumed = polls.length - result.before;
+  show(false);
+  document.body.dataset.result = JSON.stringify(result);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_hidden_tab_drops_its_long_poll_and_resumes_when_shown(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": HIDDEN_PAGE})
+    result = browser_result(review["url"], tmp_path, 10000)
+    assert result == {"aborted": True, "before": 1, "whileHidden": 0, "resumed": 1}
+
+
+def test_a_client_hanging_up_is_not_logged_as_an_error(server, capsys):
+    base, _ = server
+    host, port = base.removeprefix("http://").split(":")
+    sock = socket.create_connection((host, int(port)))
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    sock.close()  # linger 0: the server reads a connection reset
+    httpx.get(f"{base}/api/reviews")  # the server is still answering
+    time.sleep(0.2)
+    assert "Traceback" not in capsys.readouterr().err

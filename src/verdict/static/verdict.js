@@ -311,14 +311,21 @@
       }
     });
     render();
-    // keep in sync when the agent closes it or another device edits
+    // keep in sync when the agent closes it or another device edits. Only a
+    // visible tab long-polls: browsers open six connections per host, so polls
+    // parked in background tabs would stall every save and page load.
+    let polling = null;
     const poll = async () => {
+      if (document.hidden || polling) return;
+      polling = new AbortController();
       try {
-        const s = await (await fetch(`${api}?wait=30&version=${state.version}`)).json();
+        const s = await (await fetch(`${api}?wait=30&version=${state.version}`, { signal: polling.signal })).json();
         if (s.version !== state.version && !Object.keys(pending).length) { state = s; render(); }
       } catch {}
+      polling = null;
       setTimeout(poll, 1000);
     };
+    document.addEventListener("visibilitychange", () => (document.hidden ? polling?.abort() : poll()));
     poll();
   };
 

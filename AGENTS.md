@@ -16,7 +16,10 @@ design: the whole agent contract is the `verdict` CLI.
 - **The page** is whatever HTML the agent wrote. The server injects
   `/_verdict/verdict.js` + `verdict.css`, which read the page contract below,
   render answer slots, comment pins and the bottom bar, and autosave through
-  the JSON API. No build step, no framework.
+  the JSON API. No build step, no framework. Only a visible tab long-polls for
+  live sync (it aborts its poll when hidden, resumes when shown): the server
+  speaks plain HTTP/1.1, where a browser opens six connections per host, so
+  polls parked in background review tabs would stall every save and page load.
 - **The CLI** (`src/verdict/main.py`) talks to the server over HTTP
   (`VERDICT_URL`), so it works from any machine on the same network.
 
@@ -108,8 +111,11 @@ uv, pydantic-settings, httpx, structlog, pytest, Ruff. `just test` runs the
 suite against an in-process server; `just check` runs Ruff and `nix flake
 check`; `just dev` serves with your environment. Keep the uv environment
 outside the (iCloud) checkout: the justfile sets `UV_PROJECT_ENVIRONMENT` and
-`PYTHONPYCACHEPREFIX`. The browser client's one test drives headless Chrome
-(`--dump-dom`; skipped when no Chrome is found, `CHROME` overrides the path);
-still verify it in a real browser against `just dev` after changing `static/`.
+`PYTHONPYCACHEPREFIX`. The browser client's tests drive headless Chrome
+(`browser_result`: `--dump-dom` with a virtual-time budget; skipped when no
+Chrome is found, `CHROME` overrides the path). Virtual time stops while a
+fetch is pending, so a test page reacts to an in-flight request from a
+microtask, never a timer. Still verify in a real browser against `just dev`
+after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
