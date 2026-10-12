@@ -215,3 +215,51 @@ def test_autosave_keeps_focus_and_caret_in_the_text_box(server, tmp_path):
         assert (focused, start, end, value) == (True, 4, 6, "half a sent"), sel
     state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
     assert state["answers"]["q"]["text"] == state["general"] == "half a sent"
+
+
+# Ctrl+Option+C toggles comment mode (the owner's Hyper+C sends it); other
+# combos with C must not.
+KEY_PAGE = b"""<html><body><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const press = (mods) => document.dispatchEvent(new KeyboardEvent("keydown",
+  { code: "KeyC", key: "c", bubbles: true, cancelable: true, ...mods }));
+const on = () => document.body.classList.contains("vd-comment-mode");
+(async () => {
+  while (!document.querySelector(".vd-bar")) await pause(50);
+  const seen = [];
+  press({ ctrlKey: true, altKey: true }); seen.push(on());
+  press({ ctrlKey: true, altKey: true }); seen.push(on());
+  press({}); seen.push(on());
+  press({ metaKey: true, ctrlKey: true, altKey: true }); seen.push(on());
+  document.body.dataset.result = JSON.stringify(seen);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_ctrl_option_c_toggles_comment_mode(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": KEY_PAGE})
+    args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
+    args += ["--virtual-time-budget=5000", "--dump-dom", review["url"]]
+    proc = subprocess.Popen(
+        [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
+    )
+    killer = threading.Timer(60, proc.kill)
+    killer.start()
+    dom = ""
+    try:
+        for line in proc.stdout:
+            dom += line
+            if "</html>" in line:
+                break
+    finally:
+        killer.cancel()
+        proc.kill()
+        proc.wait()
+    result = re.search(r'data-result="([^"]*)"', dom)
+    assert result, dom[-2000:]
+    assert json.loads(html.unescape(result.group(1))) == [True, False, False, False]

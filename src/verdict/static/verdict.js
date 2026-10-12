@@ -228,6 +228,11 @@
 
   let bar, statusEl, general;
   const status = (text) => { if (statusEl) statusEl.textContent = text; };
+  const toggleCommentMode = () => {
+    commentMode = !commentMode;
+    document.body.classList.toggle("vd-comment-mode", commentMode);
+    renderBar();
+  };
 
   const renderBar = () => {
     if (!bar) {
@@ -250,7 +255,7 @@
       general,
       [el("div", { class: "vd-row" }, el("strong", {}, state.title), statusEl)],
       [el("div", { class: "vd-row" },
-        el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: () => { commentMode = !commentMode; document.body.classList.toggle("vd-comment-mode", commentMode); renderBar(); } }, commentMode ? "tap anything to add a note…" : "comment mode"),
+        el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: toggleCommentMode, title: "Ctrl+Option+C" }, commentMode ? "tap anything to add a note…" : "comment mode"),
         el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations"),
         closed ? "" : done
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
@@ -281,6 +286,13 @@
     }
     state = await r.json();
     document.addEventListener("click", onPageClick, true);
+    // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey && e.altKey && !e.metaKey && e.code === "KeyC") {
+        e.preventDefault();
+        toggleCommentMode();
+      }
+    });
     render();
     // keep in sync when the agent closes it or another device edits
     const poll = async () => {

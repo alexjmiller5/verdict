@@ -20,7 +20,7 @@ verdict gc                 # purge old closed reviews, kill orphan waits, list s
 The page contract is three attributes: `data-item="id"` marks something to
 answer, `data-choices="a|b|c"` (with `data-default`) makes it a pick-one,
 `data-input` makes it free text. Everything else is still annotatable in
-comment mode. Images next to `index.html` are published with it.
+comment mode (Ctrl+Option+C toggles it). Images next to `index.html` are published with it.
 
 ## Install
 

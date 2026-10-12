@@ -29,8 +29,8 @@ design: the whole agent contract is the `verdict` CLI.
 | `data-input="placeholder"` | free-text answer |
 | `data-section="name"` | gets an "accept this section's recommendations" button |
 
-Anything else can still be annotated: comment mode lets the reviewer tap any
-element and type a note; the note carries a CSS selector, a text snippet and
+Anything else can still be annotated: comment mode (the bar's toggle, or
+Ctrl+Option+C) lets the reviewer tap any element and type a note; the note carries a CSS selector, a text snippet and
 the enclosing `data-item` when there is one. Relative `src`/`href` resolve to
 the review's own published files, so screenshots sit next to `index.html`.
 
