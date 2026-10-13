@@ -1,5 +1,6 @@
 :root {
   --vd-accent: #2563eb;
+  --vd-on-accent: #ffffff;
   --vd-bg: #ffffff;
   --vd-fg: #111827;
   --vd-muted: #6b7280;
@@ -9,6 +10,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --vd-accent: #60a5fa;
+    --vd-on-accent: #0b1220;
     --vd-bg: #111827;
     --vd-fg: #f9fafb;
     --vd-muted: #9ca3af;
@@ -26,6 +28,7 @@
   .card { background: var(--vd-soft); border-radius: .75rem; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
   .card > h2 { font-size: 1.05rem; margin: 0 0 .5rem; }
   .card p { margin: .3rem 0; }
+  ul, ol { padding-left: 1.25rem; }
   table { border-collapse: collapse; width: 100%; font-size: 14px; margin: .5rem 0; }
   td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--vd-line); vertical-align: top; overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; border-radius: .5rem; border: 1px solid var(--vd-line); }
@@ -45,7 +48,7 @@ body { padding-bottom: 14rem; }
   border: 1px solid var(--vd-line); background: var(--vd-soft); color: var(--vd-fg); cursor: pointer;
 }
 .vd-choice.vd-default { border-style: dashed; }
-.vd-choice.vd-picked { background: var(--vd-accent); color: #fff; border-color: var(--vd-accent); }
+.vd-choice.vd-picked { background: var(--vd-accent); color: var(--vd-on-accent); border-color: var(--vd-accent); }
 .vd-note { color: var(--vd-muted); }
 .vd-tag { color: var(--vd-muted); font-size: 12px; }
 .vd-text { width: 100%; min-height: 3rem; font: 14px system-ui, sans-serif; padding: .5rem; border-radius: .5rem; border: 1px solid var(--vd-line); background: var(--vd-bg); color: var(--vd-fg); box-sizing: border-box; }
@@ -57,7 +60,7 @@ body { padding-bottom: 14rem; }
 .vd-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
 .vd-status { color: var(--vd-muted); }
 .vd-general { min-height: 2.4rem; }
-.vd-primary { background: var(--vd-accent) !important; color: #fff !important; border-color: var(--vd-accent) !important; }
+.vd-primary { background: var(--vd-accent) !important; color: var(--vd-on-accent) !important; border-color: var(--vd-accent) !important; }
 .vd-danger { color: #dc2626 !important; }
 .vd-toggle.vd-on { background: #fef3c7 !important; color: #92400e !important; border-color: #f59e0b !important; }
 
