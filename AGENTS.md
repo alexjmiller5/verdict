@@ -86,9 +86,9 @@ is already done or closed.
 ## API
 
 ```
-GET  /                         index of open reviews
+GET  /                         all reviews, open oldest first, finished last
 GET  /r/<id>/[file]            the page (+ injected client) and its files
-POST /api/reviews              {title, task, files:{name: base64}} -> {id, url}
+POST /api/reviews              {title, task, files:{name: base64}} -> {id, url, number}
 GET  /api/reviews              list (summaries)
 GET  /api/reviews/<id>?wait=30&version=N   state; long-polls until version changes
 PUT  /api/reviews/<id>/state   merge {answers, comments, general, status: open|done}
@@ -138,3 +138,5 @@ microtask, never a timer. Still verify in a real browser against `just dev`
 after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
+
+The front page lists every retained review. Each review has a durable sequential number, assigned on first creation and preserved across restart and reopening. Finished reviews remain linked at the bottom in muted text. Every review includes an All reviews link to the front page. The CLI publish output and list include the review number.

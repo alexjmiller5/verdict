@@ -2,6 +2,8 @@
 
 Review pages an agent publishes and a person answers in the browser.
 
+Bookmark the server root to see every review: open reviews appear oldest first, followed by finished reviews in muted text. Stable review numbers appear in the list and CLI output. Each review links back to the list.
+
 An agent that needs decisions, feedback on a design, or a look at screenshots
 writes an HTML or Markdown page, publishes it with one command, and sends the
 link. The reviewer opens it on any device, picks answers, pins notes to any

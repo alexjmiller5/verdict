@@ -49,6 +49,10 @@ def inject(page: bytes) -> bytes:
         text = INJECT + text
     if "viewport" not in lower:
         text = '<meta name="viewport" content="width=device-width, initial-scale=1">' + text
+    navigation = '<nav class="vd-home"><a href="/">All reviews</a></nav>'
+    body = text.lower().find("<body")
+    at = text.find(">", body) + 1 if body != -1 else 0
+    text = text[:at] + navigation + text[at:]
     return text.encode()
 
 
@@ -58,15 +62,15 @@ def decode_files(data: dict) -> dict[str, bytes]:
 
 def index_page(reviews: list[dict]) -> bytes:
     rows = "".join(
-        f'<li><a href="/r/{r["id"]}/">{html.escape(r["title"])}</a>'
+        f'<li class="{"vd-finished" if r["status"] != "open" else "vd-open"}">'
+        f'<a href="/r/{r["id"]}/">#{r["number"]} {html.escape(r["title"])}</a>'
         f" <small>{r['status']} · {r['created'][:10]}</small></li>"
-        for r in reviews
-        if r["status"] != "closed"
+        for r in sorted(reviews, key=lambda r: (r["status"] != "open", r["created"], r["number"]))
     )
     return (
         "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
         "<title>Verdict</title><link rel=stylesheet href=/_verdict/verdict.css>"
-        f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>nothing open</li>'}</ul></main>"
+        f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>No reviews yet.</li>'}</ul></main>"
     ).encode()
 
 
@@ -219,7 +223,7 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
             rid = store.create(str(data.get("title") or "Review"), data.get("task"), files)
             url = f"{self.base_url()}/r/{rid}/"
             log.info("published", review=rid, title=data.get("title"), files=len(files))
-            self.send_json(201, {"id": rid, "url": url})
+            self.send_json(201, {"id": rid, "url": url, "number": store.get(rid)["number"]})
 
     class Server(ThreadingHTTPServer):
         daemon_threads = True

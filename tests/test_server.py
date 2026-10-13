@@ -67,6 +67,56 @@ def test_publish_requires_index_html(server):
     assert r.status_code == 400
 
 
+def test_front_page_numbers_every_review_open_oldest_first_and_links_back(server):
+    base, store = server
+    first = publish(base, title="First <review>")
+    second = publish(base, title="Second")
+    publish(base, title="Third")
+    store.update(first["id"], {"status": "done"})
+    page = httpx.get(base + "/").text
+    assert page.index("Second") < page.index("Third") < page.index("First &lt;review&gt;")
+    assert "#1 First &lt;review&gt;" in page
+    assert "#2 Second" in page
+    assert 'class="vd-finished"' in page
+    store.close(first["id"])
+    assert "First &lt;review&gt;" in httpx.get(base + "/").text
+    assert '<a href="/"' in httpx.get(second["url"]).text
+    assert first["number"] == 1
+
+
+def test_review_numbers_survive_restart_reopen_and_removal(tmp_path):
+    store = Store(tmp_path)
+    first = store.create("First", None, {"index.html": PAGE})
+    second = store.create("Second", None, {"index.html": PAGE})
+    assert store.get(first)["number"] == 1
+    assert store.get(second)["number"] == 2
+    store.delete(second)
+    store = Store(tmp_path)
+    third = store.create("Third", None, {"index.html": PAGE})
+    assert store.get(third)["number"] == 3
+    store.close(first)
+    store.replace(first, {"index.html": PAGE})
+    assert store.get(first)["number"] == 1
+
+
+def test_existing_reviews_receive_durable_chronological_numbers(tmp_path):
+    store = Store(tmp_path)
+    first = store.create("First", None, {"index.html": PAGE})
+    second = store.create("Second", None, {"index.html": PAGE})
+    store.touch(first, created=datetime(2026, 1, 1, tzinfo=UTC))
+    store.touch(second, created=datetime(2026, 1, 2, tzinfo=UTC))
+    for rid in (first, second):
+        path = tmp_path / "reviews" / rid / "state.json"
+        state = json.loads(path.read_text())
+        state.pop("number", None)
+        path.write_text(json.dumps(state))
+    (tmp_path / "last-number").unlink(missing_ok=True)
+    store = Store(tmp_path)
+    assert store.get(first)["number"] == 1
+    assert store.get(second)["number"] == 2
+    assert Store(tmp_path).get(second)["number"] == 2
+
+
 def test_answers_round_trip_and_done(server):
     base, _ = server
     rid = publish(base)["id"]

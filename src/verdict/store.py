@@ -61,6 +61,23 @@ class Store:
         for state_file in self.reviews_dir.glob("*/state.json"):
             state = json.loads(state_file.read_text())
             self.states[state["id"]] = state
+        counter = self.root / "last-number"
+        self.last_number = max(
+            int(counter.read_text()) if counter.exists() else 0,
+            max((s.get("number", 0) for s in self.states.values()), default=0),
+        )
+        for state in sorted(self.states.values(), key=lambda s: (s["created"], s["id"])):
+            if "number" not in state:
+                state["number"] = self._next_number()
+                self._write(state)
+
+    def _next_number(self) -> int:
+        self.last_number += 1
+        path = self.root / "last-number"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(str(self.last_number))
+        tmp.replace(path)
+        return self.last_number
 
     # --- lifecycle -------------------------------------------------------
 
@@ -86,6 +103,7 @@ class Store:
             "waiters": {},
         }
         with self.cond:
+            state["number"] = self._next_number()
             self.states[rid] = state
             self._write(state)
         return rid

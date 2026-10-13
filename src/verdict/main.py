@@ -114,6 +114,8 @@ def publish(args, settings: Settings) -> int:
         review = r.json()
         print(review["url"])
         print(f"id: {review['id']}", file=sys.stderr)
+        if "number" in review:
+            print(f"review #{review['number']}", file=sys.stderr)
         warn_stale(http, settings)
     if settings.publish_hook:
         run_publish_hook(settings.publish_hook, review)
@@ -212,7 +214,7 @@ def list_reviews(args, settings: Settings) -> int:
             flag = " STALE" if r["id"] in stale else ""
             waiters = f" waiters={len(r['waiters'])}" if r["waiters"] else ""
             print(
-                f"{r['id']}  {r['status']:<6} {age(r['updated']):>4}  {r['title']}{flag}{waiters}"
+                f"#{r.get('number', '?')} {r['id']}  {r['status']:<6} {age(r['updated']):>4}  {r['title']}{flag}{waiters}"
             )
     return 0
 
