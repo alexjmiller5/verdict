@@ -288,3 +288,10 @@ def test_a_refused_publish_says_why_instead_of_blaming_the_network(base, review_
     (review_dir / "my shot.png").write_bytes(b"\x89PNG")
     code, _, err = run(capsys, "publish", str(review_dir))
     assert code == 1 and "bad file name: my shot.png" in err
+
+
+def test_the_callers_publish_hook_never_runs_in_tests(base, review_dir, capsys, tmp_path):
+    # conftest strips VERDICT_PUBLISH_HOOK; a hook left in the environment would run here
+    assert "VERDICT_PUBLISH_HOOK" not in os.environ
+    code, _, err = run(capsys, "publish", str(review_dir))
+    assert code == 0 and "hook" not in err
