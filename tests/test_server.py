@@ -354,3 +354,145 @@ def test_a_client_hanging_up_is_not_logged_as_an_error(server, capsys):
     httpx.get(f"{base}/api/reviews")  # the server is still answering
     time.sleep(0.2)
     assert "Traceback" not in capsys.readouterr().err
+
+
+def b64(content: bytes) -> str:
+    return base64.b64encode(content).decode()
+
+
+def test_replacing_files_keeps_answers_reopens_and_bumps_the_revision(server):
+    base, _ = server
+    review = publish(base)
+    rid = review["id"]
+    httpx.put(f"{base}/api/reviews/{rid}/state", json={"answers": {"a": {"choice": "yes"}}})
+    httpx.put(f"{base}/api/reviews/{rid}/state", json={"status": "done"})
+    v2 = {"index.html": b64(b"<p>round two</p>")}
+    r = httpx.put(f"{base}/api/reviews/{rid}/files", json={"title": "T2", "files": v2})
+    assert r.status_code == 200
+    assert r.json() == {"id": rid, "url": review["url"], "reopened": True}
+    state = httpx.get(f"{base}/api/reviews/{rid}").json()
+    assert (state["status"], state["done_at"], state["revision"]) == ("open", None, 2)
+    assert state["title"] == "T2" and state["answers"]["a"]["choice"] == "yes"
+    assert b"round two" in httpx.get(review["url"]).content
+    assert httpx.get(f"{base}/r/{rid}/shot.png").status_code == 404
+    # an open review stays open, and a missing title keeps the old one
+    r = httpx.put(f"{base}/api/reviews/{rid}/files", json={"files": v2})
+    assert r.json()["reopened"] is False
+    assert httpx.get(f"{base}/api/reviews/{rid}").json()["title"] == "T2"
+
+
+def test_replacing_files_rejects_bad_input_and_changes_nothing(server):
+    base, _ = server
+    rid = publish(base)["id"]
+    url = f"{base}/api/reviews/{rid}/files"
+    bad_name = {"index.html": b64(b"x"), "../escape": b64(b"x")}
+    assert httpx.put(url, json={"files": bad_name}).status_code == 400
+    assert httpx.put(url, json={"files": {"shot.png": b64(b"x")}}).status_code == 400
+    assert httpx.put(f"{base}/api/reviews/nope/files", json={"files": {}}).status_code == 404
+    assert httpx.get(f"{base}/api/reviews/{rid}").json()["revision"] == 1
+    assert httpx.get(f"{base}/r/{rid}/shot.png").content == b"\x89PNG"
+
+
+# Done sends only what the reviewer touched: an untouched choice stays
+# unanswered, an accept button records the recommendation as defaulted, and
+# only sections with choices get an accept button.
+UNTOUCHED_PAGE = b"""<html><body>
+<section data-section="s1"><p data-item="a" data-choices="yes|no">A</p>
+<p data-item="b" data-choices="yes|no">B</p></section>
+<section data-section="s2"><p data-item="c" data-choices="keep|drop" data-default="drop">C</p></section>
+<section data-section="s3"><p>Context only</p></section>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const state = async () => (await realFetch(location.pathname.replace("/r/", "/api/reviews/").replace(/\\/$/, ""))).json();
+const button = (text, scope = document) => [...scope.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+(async () => {
+  while (!button("Done")) await pause(50);
+  const result = { sectionButtons: document.querySelectorAll(".vd-section-accept").length };
+  button("no", document.querySelector('[data-for="a"]')).click();
+  document.querySelector('[data-section="s2"] .vd-section-accept').click();
+  await pause(1000);
+  button("Done").click();
+  await pause(300);
+  button("Send").click();
+  await pause(1500);
+  const s = await state();
+  result.status = s.status;
+  result.answers = s.answers;
+  document.body.dataset.result = JSON.stringify(result);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_done_leaves_untouched_items_unanswered(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": UNTOUCHED_PAGE})
+    result = browser_result(review["url"], tmp_path, 8000)
+    assert result["sectionButtons"] == 2
+    assert result["status"] == "done"
+    assert result["answers"] == {
+        "a": {"choice": "no", "defaulted": False},
+        "c": {"choice": "drop", "defaulted": True},
+    }
+
+
+# A page with nothing to answer is read, not answered: one "Got it" button.
+INFO_PAGE = b"""<html><body><section data-section="s"><h2>Report</h2><p>All done.</p></section>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const buttons = () => [...document.querySelectorAll(".vd-bar button")].map((b) => b.textContent.trim());
+(async () => {
+  while (!document.querySelector(".vd-bar")) await pause(50);
+  const result = { buttons: buttons(), status: document.querySelector(".vd-status").textContent,
+                   sectionButtons: document.querySelectorAll(".vd-section-accept").length };
+  [...document.querySelectorAll(".vd-bar button")].find((b) => b.textContent.trim() === "Got it").click();
+  await pause(1500);
+  result.after = (await (await realFetch(location.pathname.replace("/r/", "/api/reviews/").replace(/\\/$/, ""))).json()).status;
+  document.body.dataset.result = JSON.stringify(result);
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_a_page_with_nothing_to_answer_offers_got_it(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": INFO_PAGE})
+    result = browser_result(review["url"], tmp_path, 8000)
+    assert "Got it" in result["buttons"] and "Done" not in result["buttons"]
+    assert "accept all recommendations" not in result["buttons"]
+    assert result["status"].startswith("nothing to answer")
+    assert result["sectionButtons"] == 0
+    assert result["after"] == "done"
+
+
+# `verdict update` bumps the revision; an open tab reloads into the new page.
+RELOAD_V1 = b"""<html><body><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=1"), opts);
+</script></body></html>"""
+RELOAD_V2 = b"""<html><body><p>round two</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+document.body.dataset.result = JSON.stringify({ page: "v2" });
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_an_open_tab_reloads_when_the_page_is_replaced(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": RELOAD_V1})
+    files = {"index.html": b64(RELOAD_V2)}
+    url = f"{base}/api/reviews/{review['id']}/files"
+    replace = threading.Timer(3, lambda: httpx.put(url, json={"files": files}))
+    replace.start()
+    try:
+        result = browser_result(review["url"], tmp_path, 20000)
+    finally:
+        replace.cancel()
+    assert result == {"page": "v2"}

@@ -9,6 +9,7 @@ Routes
   POST /api/reviews                   create {title, task, files: {name: base64}}
   GET  /api/reviews/<id>[?wait=s&version=n]   state, long-polling on version
   PUT  /api/reviews/<id>/state        merge {answers, comments, general, status}
+  PUT  /api/reviews/<id>/files        replace the page {title?, files}; keeps answers, reopens
   POST /api/reviews/<id>/close        the agent consumed the answers
   POST /api/reviews/<id>/waiters      {pid, host} heartbeat from `verdict wait`
   POST /api/reviews/<id>/touch        backdate timestamps (gc rehearsal)
@@ -49,6 +50,10 @@ def inject(page: bytes) -> bytes:
     if "viewport" not in lower:
         text = '<meta name="viewport" content="width=device-width, initial-scale=1">' + text
     return text.encode()
+
+
+def decode_files(data: dict) -> dict[str, bytes]:
+    return {name: base64.b64decode(content) for name, content in (data.get("files") or {}).items()}
 
 
 def index_page(reviews: list[dict]) -> bytes:
@@ -197,6 +202,12 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
                     if data.get("status") == "done":
                         log.info("done", review=parts[3], answers=len(state["answers"]))
                     return self.send_json(200, state)
+                if parts[1:3] == ["api", "reviews"] and len(parts) == 5 and parts[4] == "files":
+                    rid, files = parts[3], decode_files(data)
+                    reopened = store.replace(rid, files, data.get("title"))
+                    log.info("updated", review=rid, files=len(files), reopened=reopened)
+                    url = f"{self.base_url()}/r/{rid}/"
+                    return self.send_json(200, {"id": rid, "url": url, "reopened": reopened})
                 self.error(404, "not found")
             except NotFound:
                 self.error(404, "no such review")
@@ -204,10 +215,7 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
                 self.error(400, f"bad request: {err}")
 
         def create(self, data: dict) -> None:
-            files = {
-                name: base64.b64decode(content)
-                for name, content in (data.get("files") or {}).items()
-            }
+            files = decode_files(data)
             rid = store.create(str(data.get("title") or "Review"), data.get("task"), files)
             url = f"{self.base_url()}/r/{rid}/"
             log.info("published", review=rid, title=data.get("title"), files=len(files))

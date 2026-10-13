@@ -1,6 +1,7 @@
 """The `verdict` command: the server (`serve`) and the agent-facing client."""
 
 import argparse
+import html
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
+import markdown
 
 from .config import Settings
 
@@ -24,25 +26,54 @@ def client(settings: Settings) -> httpx.Client:
     return httpx.Client(base_url=settings.url.rstrip("/"), timeout=WAIT_SLICE + 10)
 
 
-def collect(path: Path) -> dict[str, str]:
-    """A directory becomes the review's files; a single file becomes index.html."""
-    if path.is_file():
-        return {"index.html": b64encode(path.read_bytes()).decode()}
-    if not (path / "index.html").is_file():
-        raise SystemExit(f"{path} has no index.html")
-    return {
-        str(file.relative_to(path)): b64encode(file.read_bytes()).decode()
-        for file in path.rglob("*")
+def collect(path: str) -> dict[str, bytes]:
+    """The review's files: a directory (index.html or index.md, plus whatever sits next
+    to it), one HTML or Markdown file, or Markdown on stdin ("-")."""
+    if path == "-":
+        return {"index.html": render_markdown(sys.stdin.read())}
+    source = Path(path)
+    if source.is_file():
+        content = source.read_bytes()
+        is_md = source.suffix.lower() in (".md", ".markdown")
+        return {"index.html": render_markdown(content.decode()) if is_md else content}
+    files = {
+        str(file.relative_to(source)): file.read_bytes()
+        for file in source.rglob("*")
         if file.is_file() and not file.name.startswith(".")
     }
+    if "index.html" not in files and "index.md" in files:
+        files["index.html"] = render_markdown(files.pop("index.md").decode())
+    if "index.html" not in files:
+        raise SystemExit(f"{path} has no index.html or index.md")
+    return files
 
 
-def guess_title(files: dict[str, str], fallback: str) -> str:
-    import base64
+def render_markdown(text: str) -> bytes:
+    """A Markdown page: what precedes the first `##` is the lead, each `##` heading opens
+    a card. Raw HTML lines (the decision markup) pass through untouched; the server's
+    injected stylesheet styles the rest."""
+    body = markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists"])
+    lead, *cards = re.split(r"(?=<h2[ >])", body)
+    sections = "".join(
+        f'<section class="card" data-section="s{n}">{card}</section>'
+        for n, card in enumerate(cards, 1)
+    )
+    h1 = re.search(r"<h1[^>]*>(.*?)</h1>", lead, re.DOTALL)
+    title = f"<title>{re.sub(r'<[^>]+>', '', h1.group(1)).strip()}</title>" if h1 else ""
+    return (
+        f'<!doctype html><html lang="en"><head><meta charset="utf-8">{title}</head>'
+        f"<body>{lead}{sections}</body></html>"
+    ).encode()
 
-    page = base64.b64decode(files["index.html"]).decode("utf-8", errors="replace")
+
+def encode(files: dict[str, bytes]) -> dict[str, str]:
+    return {name: b64encode(content).decode() for name, content in files.items()}
+
+
+def guess_title(files: dict[str, bytes], fallback: str | None) -> str | None:
+    page = files["index.html"].decode("utf-8", errors="replace")
     match = re.search(r"<title>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
-    return " ".join(match.group(1).split()) if match else fallback
+    return html.unescape(" ".join(match.group(1).split())) if match else fallback
 
 
 def age(iso: str) -> str:
@@ -74,16 +105,34 @@ def warn_stale(http: httpx.Client, settings: Settings) -> None:
 
 
 def publish(args, settings: Settings) -> int:
-    files = collect(Path(args.path))
-    title = args.title or guess_title(files, Path(args.path).stem)
+    files = collect(args.path)
+    title = args.title or guess_title(files, "Review" if args.path == "-" else Path(args.path).stem)
     with client(settings) as http:
-        r = http.post("/api/reviews", json={"title": title, "task": args.task, "files": files})
+        body = {"title": title, "task": args.task, "files": encode(files)}
+        r = http.post("/api/reviews", json=body)
         r.raise_for_status()
         review = r.json()
         print(review["url"])
         print(f"id: {review['id']}", file=sys.stderr)
         warn_stale(http, settings)
     if settings.publish_hook:
+        run_publish_hook(settings.publish_hook, review)
+    return 0
+
+
+def update(args, settings: Settings) -> int:
+    files = collect(args.path)
+    body = {"title": args.title or guess_title(files, None), "files": encode(files)}
+    with client(settings) as http:
+        r = http.put(f"/api/reviews/{args.id}/files", json=body)
+        if r.status_code == 404:
+            print(f"review {args.id} not found", file=sys.stderr)
+            return 4
+        r.raise_for_status()
+        review = r.json()
+    print(review["url"])
+    # a finished review's waker has already fired; an open one's is still waiting
+    if review["reopened"] and settings.publish_hook:
         run_publish_hook(settings.publish_hook, review)
     return 0
 
@@ -237,12 +286,24 @@ def cli(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser(
-        "publish", help="publish a review page (a directory with index.html, or one HTML file)"
+        "publish",
+        help="publish a review page: a directory with index.html or index.md, one HTML or "
+        "Markdown file, or - for Markdown on stdin",
     )
     p.add_argument("path")
     p.add_argument("--title", help="defaults to the page <title>")
     p.add_argument("--task", help="the task this review belongs to (any id)")
     p.set_defaults(fn=publish)
+
+    p = sub.add_parser(
+        "update",
+        help="replace a review's page (same inputs as publish); keeps answers and notes, "
+        "reopens it, reloads open tabs",
+    )
+    p.add_argument("id")
+    p.add_argument("path")
+    p.add_argument("--title", help="defaults to the page <title>, else the current title")
+    p.set_defaults(fn=update)
 
     p = sub.add_parser("wait", help="block until the review is done, then print its state as JSON")
     p.add_argument("id")
@@ -277,6 +338,9 @@ def cli(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.fn(args, Settings())
+    except httpx.HTTPStatusError as err:
+        print(f"verdict: the server refused it ({err.response.text})", file=sys.stderr)
+        return 1
     except httpx.HTTPError as err:
         print(f"verdict: cannot reach the server ({err})", file=sys.stderr)
         return 5

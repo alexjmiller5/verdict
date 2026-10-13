@@ -16,6 +16,24 @@
     --vd-soft: #1f2937;
   }
 }
+/* Base styles for the agent's page, so Markdown and bare HTML read well on a
+   phone in either theme. Layered: any style the page brings wins. */
+@layer verdict-page {
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 0 auto; padding: 1.25rem 1rem; color: var(--vd-fg); background: var(--vd-bg); }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h1 + p { color: var(--vd-muted); margin: 0 0 1.25rem; }
+  .card { background: var(--vd-soft); border-radius: .75rem; padding: 1rem 1.1rem; margin: 0 0 1.1rem; }
+  .card > h2 { font-size: 1.05rem; margin: 0 0 .5rem; }
+  .card p { margin: .3rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: .5rem 0; }
+  td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--vd-line); vertical-align: top; overflow-wrap: anywhere; }
+  img { max-width: 100%; height: auto; border-radius: .5rem; border: 1px solid var(--vd-line); }
+  code { font: .9em ui-monospace, monospace; }
+  pre { overflow-x: auto; padding: .6rem .8rem; border-radius: .5rem; background: var(--vd-bg); border: 1px solid var(--vd-line); }
+  a { color: var(--vd-accent); }
+  [data-choices], [data-input] { margin-top: .6rem; font-weight: 600; }
+}
 body { padding-bottom: 14rem; }
 .vd-index { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: var(--vd-fg); background: var(--vd-bg); }
 .vd-index small { color: var(--vd-muted); }

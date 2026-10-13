@@ -1,5 +1,6 @@
 """The agent-facing CLI against a live server."""
 
+import io
 import json
 import os
 import socket
@@ -191,3 +192,99 @@ def test_a_failing_publish_hook_never_fails_the_publish(base, review_dir, capsys
     code, out, err = run(capsys, "publish", str(review_dir))
     assert code == 0 and out.strip().startswith(base)
     assert "publish hook failed (exit 7)" in err and "nope" in err
+
+
+NOTES_MD = """# Five decisions
+
+Where these came from.
+
+## 1. Price source
+
+| provider | history |
+|---|---|
+| Tiingo | full |
+
+<div data-item="prices" data-choices="Tiingo|Alpha Vantage" data-default="Tiingo">Price source</div>
+
+## 2. Context only
+
+Nothing to decide here.
+"""
+
+
+def page(base, rid, name=""):
+    return httpx.get(f"{base}/r/{rid}/{name}").text
+
+
+def test_publish_markdown_renders_one_card_per_heading(base, tmp_path, capsys):
+    notes = tmp_path / "notes.md"
+    notes.write_text(NOTES_MD)
+    code, out, _ = run(capsys, "publish", str(notes))
+    assert code == 0
+    rid = published_id(out)
+    html = page(base, rid)
+    assert "<title>Five decisions</title>" in html
+    assert json.loads(run(capsys, "show", rid)[1])["title"] == "Five decisions"
+    lead, first, second = html.split('<section class="card"')
+    assert "<h1>Five decisions</h1>" in lead and "Where these came from." in lead
+    assert "<h2>1. Price source</h2>" in first and "<table>" in first
+    assert '<div data-item="prices" data-choices="Tiingo|Alpha Vantage"' in first
+    assert "<h2>2. Context only</h2>" in second and "Price source" not in second
+
+
+def test_publish_markdown_from_stdin(base, capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(NOTES_MD))
+    code, out, _ = run(capsys, "publish", "-", "--title", "From stdin")
+    assert code == 0
+    rid = published_id(out)
+    assert "<h2>1. Price source</h2>" in page(base, rid)
+    assert json.loads(run(capsys, "show", rid)[1])["title"] == "From stdin"
+
+
+def test_publish_directory_with_index_md_keeps_its_images(base, tmp_path, capsys):
+    d = tmp_path / "review"
+    d.mkdir()
+    (d / "index.md").write_text("# Shots\n\n![the screen](shot.png)\n")
+    (d / "shot.png").write_bytes(b"\x89PNG")
+    _, out, _ = run(capsys, "publish", str(d))
+    rid = published_id(out)
+    assert '<img alt="the screen" src="shot.png"' in page(base, rid)
+    assert httpx.get(f"{base}/r/{rid}/shot.png").content == b"\x89PNG"
+
+
+def test_update_replaces_the_page_keeps_answers_and_reopens(base, review_dir, tmp_path, capsys):
+    _, out, _ = run(capsys, "publish", str(review_dir))
+    url, rid = out.strip(), published_id(out)
+    httpx.put(f"{base}/api/reviews/{rid}/state", json={"answers": {"a": {"choice": "go"}}})
+    httpx.put(f"{base}/api/reviews/{rid}/state", json={"status": "done"})
+    notes = tmp_path / "round2.md"
+    notes.write_text("# Round two\n\nApplied: go.\n")
+    code, out, _ = run(capsys, "update", rid, str(notes))
+    assert code == 0 and out.strip() == url
+    state = json.loads(run(capsys, "show", rid)[1])
+    assert state["status"] == "open" and state["answers"]["a"]["choice"] == "go"
+    assert state["revision"] == 2 and state["title"] == "Round two"
+    assert "Applied: go." in page(base, rid)
+    assert httpx.get(f"{base}/r/{rid}/shot.png").status_code == 404  # replaced, not merged
+
+
+def test_update_an_unknown_review_exits_4(base, review_dir, capsys):
+    code, _, err = run(capsys, "update", "nope", str(review_dir))
+    assert code == 4 and "nope" in err
+
+
+def test_update_reruns_the_publish_hook_only_when_it_reopens(base, review_dir, capsys, monkeypatch):
+    _, out, _ = run(capsys, "publish", str(review_dir))
+    rid = published_id(out)
+    monkeypatch.setenv("VERDICT_PUBLISH_HOOK", 'echo "armed $VERDICT_REVIEW_ID"')
+    _, _, err = run(capsys, "update", rid, str(review_dir))
+    assert "armed" not in err  # still open: the waker armed at publish is still waiting
+    httpx.put(f"{base}/api/reviews/{rid}/state", json={"status": "done"})
+    _, _, err = run(capsys, "update", rid, str(review_dir))
+    assert f"armed {rid}" in err
+
+
+def test_a_refused_publish_says_why_instead_of_blaming_the_network(base, review_dir, capsys):
+    (review_dir / "my shot.png").write_bytes(b"\x89PNG")
+    code, _, err = run(capsys, "publish", str(review_dir))
+    assert code == 1 and "bad file name: my shot.png" in err

@@ -3,13 +3,16 @@
 Review pages an agent publishes and a person answers in the browser.
 
 An agent that needs decisions, feedback on a design, or a look at screenshots
-writes an ordinary HTML page, publishes it with one command, and sends the
+writes an HTML or Markdown page, publishes it with one command, and sends the
 link. The reviewer opens it on any device, picks answers, pins notes to any
-part of the page and presses Done. The agent reads the answers back as JSON.
+part of the page and presses Done; untouched items stay unanswered. The agent
+reads the answers back as JSON.
 Any agent that can run a shell command can use it.
 
 ```sh
 verdict publish ./review/ --title "Finance categories" --task 42   # prints the link
+verdict publish notes.md   # Markdown works too (or - for stdin); each ## heading is a card
+verdict update <id> notes.md   # replace the page on the same link; answers and notes stay
 verdict wait <id>          # blocks until Done, prints answers as JSON (exit 3 on timeout)
 verdict show <id>          # the current state, any time
 verdict close <id>         # answers consumed; purged later by gc

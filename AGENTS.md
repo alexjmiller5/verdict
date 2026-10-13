@@ -13,10 +13,17 @@ design: the whole agent contract is the `verdict` CLI.
   review holding `state.json` and the published files. Everything is
   write-through to disk and held in memory; a `threading.Condition` wakes
   long-polling readers on every change.
-- **The page** is whatever HTML the agent wrote. The server injects
-  `/_verdict/verdict.js` + `verdict.css`, which read the page contract below,
-  render answer slots, comment pins and the bottom bar, and autosave through
-  the JSON API. No build step, no framework. Only a visible tab long-polls for
+- **The page** is whatever HTML the agent wrote, or Markdown the CLI rendered
+  (`publish notes.md`, a directory with `index.md`, or `-` for stdin): the
+  part before the first `##` is the lead, each `##` heading opens a
+  `<section class="card" data-section="sN">`, raw HTML lines (the decision
+  markup) pass through. The server injects `/_verdict/verdict.js` +
+  `verdict.css`, which read the page contract below, render answer slots,
+  comment pins and the bottom bar, and autosave through the JSON API.
+  `verdict.css` also carries base page styles (type, cards, tables, images,
+  both color schemes) in `@layer verdict-page`, so any style the page brings
+  wins and a page with no `<style>` still reads well on a phone. No build
+  step, no framework. Only a visible tab long-polls for
   live sync (it aborts its poll when hidden, resumes when shown): the server
   speaks plain HTTP/1.1, where a browser opens six connections per host, so
   polls parked in background review tabs would stall every save and page load.
@@ -30,28 +37,37 @@ design: the whole agent contract is the `verdict` CLI.
 | `data-item="id"` | something to answer or annotate; `id` is the key in `answers` |
 | `data-choices="a\|b\|c"` | pick one; `data-default` names the recommendation (else the first) |
 | `data-input="placeholder"` | free-text answer |
-| `data-section="name"` | gets an "accept this section's recommendations" button |
+| `data-section="name"` | gets an "accept this section's recommendations" button when it holds choices |
 
 Anything else can still be annotated: comment mode (the bar's toggle, or
 Ctrl+Option+C) lets the reviewer tap any element and type a note; the note carries a CSS selector, a text snippet and
 the enclosing `data-item` when there is one. Relative `src`/`href` resolve to
 the review's own published files, so screenshots sit next to `index.html`.
+A page with nothing to answer is a report: its bar offers "Got it" (marks it
+done) in place of Done.
 
 ## State shape (`verdict show` / `verdict wait`)
 
 ```json
-{"id":"…","title":"…","task":"…","status":"open|done|closed",
+{"id":"…","title":"…","task":"…","status":"open|done|closed","revision":1,
  "answers":{"<item>":{"choice":"…","text":"…","defaulted":false}},
  "comments":[{"item":"<item or null>","selector":"…","snippet":"…","text":"…","at":"…"}],
  "general":"…","version":7,"created":"…","updated":"…","done_at":null,"closed_at":null,
  "waiters":[{"pid":123,"host":"…","seen":"…"}]}
 ```
 
-`defaulted: true` means the reviewer accepted the recommendation without
-choosing it explicitly (Done fills unanswered choices with their defaults).
-Done first asks "Send your answers to the agent?" and says whether an agent
-is listening: any waiter (a `verdict wait` heartbeat) seen in the last two
-minutes.
+Done sends only what the reviewer touched: an untouched item is absent from
+`answers` (unanswered). `defaulted: true` means the reviewer took the
+recommendation with an accept button (section or page-wide), which is a
+decision. Done first asks "Send your answers to the agent?", counts what is
+left unanswered, and says whether an agent is listening: any waiter (a
+`verdict wait` heartbeat) seen in the last two minutes.
+
+`verdict update <id> <page>` replaces the published files (same inputs as
+`publish`), keeps answers, notes and the link, reopens a done or closed
+review and bumps `revision`; an open tab sees the new revision on its next
+poll or save and reloads. A review it reopened gets the publish hook again
+(its earlier waker has fired); one that was still open does not.
 
 ## Lifecycle and cleanup (built into the CLI)
 
@@ -76,6 +92,7 @@ POST /api/reviews              {title, task, files:{name: base64}} -> {id, url}
 GET  /api/reviews              list (summaries)
 GET  /api/reviews/<id>?wait=30&version=N   state; long-polls until version changes
 PUT  /api/reviews/<id>/state   merge {answers, comments, general, status: open|done}
+PUT  /api/reviews/<id>/files   {title?, files:{name: base64}} -> {id, url, reopened}
 POST /api/reviews/<id>/close   agent consumed it
 POST /api/reviews/<id>/waiters {pid, host} heartbeat
 POST /api/reviews/<id>/touch   backdate timestamps (gc rehearsal)

@@ -5,6 +5,7 @@ description = "Review pages an agent publishes to a private server and a person 
 requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28",
+    "markdown>=3.11",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "structlog>=25.1",

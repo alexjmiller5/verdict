@@ -31,6 +31,22 @@ def safe_file(name: str) -> bool:
     return bool(SAFE_NAME.match(name)) and ".." not in name.split("/")
 
 
+def check_files(files: dict[str, bytes]) -> None:
+    if "index.html" not in files:
+        raise ValueError("index.html is required")
+    for name in files:
+        if not safe_file(name):
+            raise ValueError(f"bad file name: {name}")
+
+
+def write_files(folder: Path, files: dict[str, bytes]) -> None:
+    folder.mkdir(parents=True)
+    for name, content in files.items():
+        path = folder / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+
+
 class NotFound(KeyError):
     pass
 
@@ -49,18 +65,9 @@ class Store:
     # --- lifecycle -------------------------------------------------------
 
     def create(self, title: str, task: str | None, files: dict[str, bytes]) -> str:
-        if "index.html" not in files:
-            raise ValueError("index.html is required")
-        for name in files:
-            if not safe_file(name):
-                raise ValueError(f"bad file name: {name}")
+        check_files(files)
         rid = secrets.token_urlsafe(6).replace("-", "a").replace("_", "b")
-        folder = self.reviews_dir / rid / "files"
-        folder.mkdir(parents=True)
-        for name, content in files.items():
-            path = folder / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
+        write_files(self.reviews_dir / rid / "files", files)
         created = stamp(now())
         state = {
             "id": rid,
@@ -72,6 +79,7 @@ class Store:
             "done_at": None,
             "closed_at": None,
             "version": 1,
+            "revision": 1,
             "answers": {},
             "comments": [],
             "general": "",
@@ -108,6 +116,26 @@ class Store:
                 state["done_at"] = stamp(now()) if status == "done" else None
             self._bump(state)
             return self._public(state)
+
+    def replace(self, rid: str, files: dict[str, bytes], title: str | None = None) -> bool:
+        """Swap in a new page, keep answers and notes, reopen; True if it was finished."""
+        with self.cond:
+            state = self._state(rid)
+            check_files(files)
+            folder = self.reviews_dir / rid / "files"
+            fresh, old = folder.with_name("files.new"), folder.with_name("files.old")
+            shutil.rmtree(fresh, ignore_errors=True)
+            write_files(fresh, files)
+            folder.rename(old)
+            fresh.rename(folder)
+            shutil.rmtree(old, ignore_errors=True)
+            reopened = state["status"] != "open"
+            state.update(status="open", done_at=None, closed_at=None)
+            state["revision"] = state.get("revision", 1) + 1
+            if title:
+                state["title"] = title
+            self._bump(state)
+            return reopened
 
     def close(self, rid: str) -> dict:
         with self.cond:

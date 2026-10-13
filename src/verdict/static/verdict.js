@@ -6,6 +6,8 @@
  *   [data-input]                       free text answer
  *   [data-section="name"]              gets an "accept recommendations" button for its items
  * Everything else is annotatable in comment mode (tap any element).
+ * Done sends only what the reviewer touched; the accept buttons are the way to
+ * take a recommendation. A page with nothing to answer gets "Got it" instead.
  */
 (() => {
   const id = location.pathname.split("/")[2];
@@ -37,6 +39,11 @@
   const typing = (box) => box === document.activeElement;
 
   const items = () => [...document.querySelectorAll("[data-item]")];
+  const answerable = () => items().filter((i) => i.dataset.choices || "input" in i.dataset);
+  const hasChoices = (scope) => !!scope.querySelector("[data-item][data-choices]");
+  let loadedRevision = null;
+  // `verdict update` replaced the page: show the new one (answers are kept server-side)
+  const replaced = (s) => loadedRevision !== null && s.revision !== loadedRevision;
   const defaultFor = (item) => {
     const choices = (item.dataset.choices || "").split("|").filter(Boolean);
     return item.dataset.default || choices[0] || null;
@@ -53,6 +60,7 @@
     });
     if (!r.ok) throw new Error(`save failed: ${r.status}`);
     state = await r.json();
+    if (replaced(state)) return location.reload();
     render();
   };
 
@@ -233,9 +241,11 @@
   const confirmDone = () => {
     document.querySelectorAll(".vd-confirm").forEach((s) => s.remove());
     const sheet = el("div", { class: "vd-sheet vd-confirm" });
-    const send = () => { sheet.remove(); acceptAll(document); flush().then(() => put({ status: "done" })); };
+    const send = () => { sheet.remove(); finish(); };
+    const left = answerable().filter((i) => !answer(i.dataset.item).choice && !answer(i.dataset.item).text).length;
     sheet.append(
       el("div", { class: "vd-sheet-head" }, "Send your answers to the agent?"),
+      left ? el("div", {}, `${left} left unanswered; the agent will ask about ${left === 1 ? "it" : "them"}.`) : "",
       el("div", {}, listening()
         ? "The agent is listening and gets them right away."
         : "No agent is listening right now; it reads them the next time it checks."),
@@ -245,6 +255,7 @@
     );
     document.body.append(sheet);
   };
+  const finish = () => flush().then(() => put({ status: "done" }));
   const toggleCommentMode = () => {
     commentMode = !commentMode;
     document.body.classList.toggle("vd-comment-mode", commentMode);
@@ -264,19 +275,22 @@
     const done = state.status === "done";
     const closed = state.status === "closed";
     if (!typing(general)) general.value = state.general || "";
-    const answered = items().filter((i) => answer(i.dataset.item).choice || answer(i.dataset.item).text).length;
-    const total = items().filter((i) => i.dataset.choices || "input" in i.dataset).length;
-    statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "sent to the agent" : `${answered}/${total} answered · ${state.comments.length} notes`);
+    const total = answerable().length;
+    const answered = answerable().filter((i) => answer(i.dataset.item).choice || answer(i.dataset.item).text).length;
+    const progress = total ? `${answered}/${total} answered` : "nothing to answer";
+    statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`);
     rebuild(
       bar,
       general,
       [el("div", { class: "vd-row" }, el("strong", {}, state.title), statusEl)],
       [el("div", { class: "vd-row" },
         el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: toggleCommentMode, title: "Ctrl+Option+C" }, commentMode ? "tap anything to add a note…" : "comment mode"),
-        el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations"),
+        hasChoices(document) ? el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations") : "",
         closed ? "" : done
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
-          : el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
+          : total
+            ? el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
+            : el("button", { type: "button", class: "vd-primary", onclick: finish }, "Got it")
       )]
     );
   };
@@ -285,7 +299,7 @@
     items().forEach(slotFor);
     document.querySelectorAll("[data-section]").forEach((section) => {
       let btn = section.querySelector(":scope > .vd-section-accept");
-      if (!btn) {
+      if (!btn && hasChoices(section)) {
         btn = el("button", { type: "button", class: "vd-section-accept", onclick: () => acceptAll(section) }, "accept this section's recommendations");
         section.append(btn);
       }
@@ -302,6 +316,7 @@
       return;
     }
     state = await r.json();
+    loadedRevision = state.revision;
     document.addEventListener("click", onPageClick, true);
     // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
     document.addEventListener("keydown", (e) => {
@@ -320,6 +335,7 @@
       polling = new AbortController();
       try {
         const s = await (await fetch(`${api}?wait=30&version=${state.version}`, { signal: polling.signal })).json();
+        if (replaced(s)) { await flush(); return location.reload(); }
         if (s.version !== state.version && !Object.keys(pending).length) { state = s; render(); }
       } catch {}
       polling = null;
