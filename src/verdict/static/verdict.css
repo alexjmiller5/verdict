@@ -30,7 +30,8 @@
   .card p { margin: .3rem 0; }
   ul, ol { padding-left: 1.25rem; }
   table { border-collapse: collapse; width: 100%; font-size: 14px; margin: .5rem 0; }
-  td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--vd-line); vertical-align: top; overflow-wrap: anywhere; }
+  td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--vd-line); vertical-align: top; overflow-wrap: break-word; }
+  :is(td, th) :is(code, a) { overflow-wrap: anywhere; }
   img { max-width: 100%; height: auto; border-radius: .5rem; border: 1px solid var(--vd-line); }
   code { font: .9em ui-monospace, monospace; }
   pre { overflow-x: auto; padding: .6rem .8rem; border-radius: .5rem; background: var(--vd-bg); border: 1px solid var(--vd-line); }
