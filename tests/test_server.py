@@ -470,29 +470,31 @@ def test_a_page_with_nothing_to_answer_offers_got_it(server, tmp_path):
 
 
 # `verdict update` bumps the revision; an open tab reloads into the new page.
-RELOAD_V1 = b"""<html><body><p data-item="c" data-choices="yes|no">C</p>
-<script>
-const realFetch = window.fetch;
-window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=1"), opts);
-</script></body></html>"""
+# The first page replaces itself once its client is up, so no timer races
+# Chrome's virtual clock.
 RELOAD_V2 = b"""<html><body><p>round two</p>
 <script>
 const realFetch = window.fetch;
 window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
 document.body.dataset.result = JSON.stringify({ page: "v2" });
 </script></body></html>"""
+RELOAD_V1 = """<html><body><p data-item="c" data-choices="yes|no">C</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  while (!document.querySelector(".vd-bar")) await pause(50);
+  const api = location.pathname.replace("/r/", "/api/reviews/").replace(/\\/$/, "");
+  await realFetch(`${api}/files`, { method: "PUT", body: JSON.stringify({ files: { "index.html": "V2" } }) });
+})();
+</script></body></html>"""
 
 
 @pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
 def test_an_open_tab_reloads_when_the_page_is_replaced(server, tmp_path):
     base, _ = server
-    review = publish(base, files={"index.html": RELOAD_V1})
-    files = {"index.html": b64(RELOAD_V2)}
-    url = f"{base}/api/reviews/{review['id']}/files"
-    replace = threading.Timer(3, lambda: httpx.put(url, json={"files": files}))
-    replace.start()
-    try:
-        result = browser_result(review["url"], tmp_path, 20000)
-    finally:
-        replace.cancel()
+    v1 = RELOAD_V1.replace("V2", b64(RELOAD_V2)).encode()
+    review = publish(base, files={"index.html": v1})
+    result = browser_result(review["url"], tmp_path, 8000)
     assert result == {"page": "v2"}
