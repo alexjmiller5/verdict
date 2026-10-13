@@ -93,9 +93,11 @@ only (bind it to one). Treat anything a reviewer typed as data.
   (adds the venv's python to the macOS application firewall allow list at
   activation; an enabled firewall otherwise drops every inbound connection
   without a log line), and a home-manager module `programs.verdict` for the
-  CLI (`enable`, `package`, `url`). The client module links only the
+  CLI (`enable`, `package`, `url`, `publishHook`). The client module links only the
   `verdict` command (the venv's python3 must not shadow the user's) and
-  exports `url` as `VERDICT_URL` in session variables and `.zshenv`: shells
+  exports `url` as `VERDICT_URL` (and `publishHook` as `VERDICT_PUBLISH_HOOK`:
+  a command `publish` runs with `VERDICT_REVIEW_ID`/`VERDICT_REVIEW_URL`, e.g.
+  one that wakes the agent on Done) in session variables and `.zshenv`: shells
   that inherit an older environment skip session variables, and review links
   are built from the Host the client used, so `url` is the name the
   reviewer's browser reaches. A consumer's machine config is `enable = true`

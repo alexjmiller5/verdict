@@ -167,3 +167,27 @@ def test_publish_warns_about_stale_reviews(base, review_dir, capsys):
     httpx.post(f"{base}/api/reviews/{rid}/touch", json={"created": old, "updated": old})
     _, _, err = run(capsys, "publish", str(review_dir))
     assert "stale" in err and rid in err
+
+
+def test_publish_runs_the_publish_hook_with_the_review(
+    base, review_dir, capsys, monkeypatch, tmp_path
+):
+    seen = tmp_path / "hook.txt"
+    monkeypatch.setenv(
+        "VERDICT_PUBLISH_HOOK",
+        f'echo "$VERDICT_REVIEW_ID $VERDICT_REVIEW_URL" > {seen}; echo armed a waker',
+    )
+    code, out, err = run(capsys, "publish", str(review_dir))
+    assert code == 0
+    url = out.strip()
+    assert url.startswith(base) and "\n" not in url  # stdout stays the URL alone
+    rid = url.rstrip("/").rsplit("/", 1)[1]
+    assert seen.read_text().split() == [rid, url]
+    assert "armed a waker" in err
+
+
+def test_a_failing_publish_hook_never_fails_the_publish(base, review_dir, capsys, monkeypatch):
+    monkeypatch.setenv("VERDICT_PUBLISH_HOOK", "echo nope; exit 7")
+    code, out, err = run(capsys, "publish", str(review_dir))
+    assert code == 0 and out.strip().startswith(base)
+    assert "publish hook failed (exit 7)" in err and "nope" in err

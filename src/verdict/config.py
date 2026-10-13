@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     # client side: where the agent's CLI sends reviews
     url: str = "http://127.0.0.1:7071"
+    # a shell command `publish` runs after publishing, with VERDICT_REVIEW_ID and
+    # VERDICT_REVIEW_URL set (e.g. something that wakes the agent on Done)
+    publish_hook: str | None = None
     # server side
     bind: str = "127.0.0.1"
     port: int = Field(default=7071, ge=1, le=65535)

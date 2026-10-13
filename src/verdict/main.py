@@ -83,7 +83,30 @@ def publish(args, settings: Settings) -> int:
         print(review["url"])
         print(f"id: {review['id']}", file=sys.stderr)
         warn_stale(http, settings)
+    if settings.publish_hook:
+        run_publish_hook(settings.publish_hook, review)
     return 0
+
+
+def run_publish_hook(hook: str, review: dict) -> None:
+    """Run the configured hook; its output goes to stderr, its failure is only a warning."""
+    env = {**os.environ, "VERDICT_REVIEW_ID": review["id"], "VERDICT_REVIEW_URL": review["url"]}
+    done = subprocess.run(
+        hook,
+        check=False,
+        shell=True,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if done.stdout:
+        print(done.stdout.rstrip(), file=sys.stderr)
+    if done.returncode:
+        print(
+            f"verdict: publish hook failed (exit {done.returncode}); the review is published",
+            file=sys.stderr,
+        )
 
 
 def wait(args, settings: Settings) -> int:
