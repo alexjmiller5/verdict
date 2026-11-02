@@ -1048,3 +1048,47 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     driver = publish(base, files={"index.html": outer})
     result = browser_result(driver["url"], tmp_path / "embedded", 5000)
     assert result["atClose"] == [] and result["value"] == "Retain close answer"
+
+
+OPTIONAL_PAGE = rb"""<html><body>
+<p data-item="required" data-choices="Keep|Change">Required decision</p>
+<p data-item="extra" data-input="Anything else?" data-optional>Additional instructions</p>
+<script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const button=t=>[...document.querySelectorAll('button')].find(b=>b.textContent===t);
+(async()=>{
+ while(!button('Done'))await pause(50);
+ if(button('Keep'))button('Keep').click();
+ if('FILLED'==='yes'){const box=document.querySelector('[data-for="extra"] textarea');box.value='Optional correction';box.dispatchEvent(new Event('input'));}
+ await pause(600);document.querySelector('.vd-toggle').click();
+ const progress=document.querySelector('.vd-status').textContent;
+ button('Done').click();const confirmation=document.querySelector('.vd-confirm').innerText;
+ document.querySelector('.vd-confirm .vd-primary').click();await pause(900);
+ document.body.dataset.result=JSON.stringify({progress,confirmation});
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("only_optional", [False, True])
+@pytest.mark.parametrize("filled", [False, True])
+def test_optional_instructions_do_not_count_as_unanswered_and_still_save(
+    server, tmp_path, only_optional, filled
+):
+    base, _ = server
+    page = OPTIONAL_PAGE.replace(b"FILLED", b"yes" if filled else b"no")
+    if only_optional:
+        page = page.replace(
+            b'<p data-item="required" data-choices="Keep|Change">Required decision</p>', b""
+        )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert "left unanswered" not in result["confirmation"]
+    assert ("no required answers" if only_optional else "1/1 answered") in result["progress"]
+    state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+    assert state["status"] == "done"
+    if filled:
+        assert state["answers"]["extra"]["text"] == "Optional correction"
+    else:
+        assert "extra" not in state["answers"]

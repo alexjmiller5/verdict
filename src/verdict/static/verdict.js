@@ -84,6 +84,7 @@
 
   const items = () => [...document.querySelectorAll("[data-item]")];
   const answerable = () => items().filter((i) => i.dataset.choices || "input" in i.dataset);
+  const requiredItems = () => answerable().filter((item) => !("optional" in item.dataset));
   const hasChoices = (scope) => !!scope.querySelector("[data-item][data-choices]");
   let loadedRevision = null;
   // `verdict update` replaced the page: show the new one (answers are kept server-side)
@@ -317,7 +318,7 @@
   // An agent waiting on this review heartbeats as a waiter (`verdict wait`).
   const listening = () => (state.waiters || []).some((w) => Date.now() - Date.parse(w.seen) < 120000);
   const confirmDone = () => {
-    const left = answerable().filter((i) => !isAnswered(i)).length;
+    const left = requiredItems().filter((i) => !isAnswered(i)).length;
     const details = [];
     if (left) details.push(el("div", {}, `${left} left unanswered; the agent will ask about ${left === 1 ? "it" : "them"}.`));
     details.push(el("div", {}, listening()
@@ -380,9 +381,11 @@
     const done = state.status === "done";
     const closed = state.status === "closed";
     if (!typing(general)) general.value = state.general || "";
-    const total = answerable().length;
-    const answered = answerable().filter(isAnswered).length;
-    const progress = total ? `${answered}/${total} answered` : "nothing to answer";
+    const questions = answerable();
+    const required = requiredItems();
+    const total = required.length;
+    const answered = required.filter(isAnswered).length;
+    const progress = total ? `${answered}/${total} answered` : questions.length ? "no required answers" : "nothing to answer";
     statusEl.textContent = closed ? "closed" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`;
     rebuild(
       paneBody,
@@ -393,7 +396,7 @@
         hasChoices(document) ? el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations") : "",
         closed ? "" : done
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
-          : total
+          : questions.length
             ? el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
             : el("button", { type: "button", class: "vd-primary", onclick: finish }, "Got it"),
         done ? el("button", { type: "button", class: "vd-close-tab", onclick: () => window.close() }, "Close tab") : ""

@@ -40,6 +40,7 @@ design: the whole agent contract is the `verdict` CLI.
 | `data-item="id"` | something to answer or annotate; `id` is the key in `answers` |
 | `data-choices="a\|b\|c"` | pick one; `data-default` names the recommendation (else the first) |
 | `data-input="placeholder"` | free-text answer |
+| `data-optional` | supplemental answer excluded from required counts and unanswered warnings; still saved |
 | `data-section="name"` | gets an "accept this section's recommendations" button when it holds choices |
 
 Anything else can still be annotated: comment mode (the bar's toggle, or
@@ -64,6 +65,9 @@ Done sends only what the reviewer touched: an untouched item is absent from
 recommendation with an accept button (section or page-wide), which is a
 decision. Nonblank item notes and element comments within an item count as answers,
 alongside choices and nonblank text. General notes do not answer every item.
+Use `data-optional` for additional instructions and corrections. Such fields stay
+editable and save normally, but do not create unanswered warnings or inflate the
+required progress counter. A page containing only optional fields still has Done.
 Cmd+Enter saves an open note; in an answer or general-notes textarea it opens
 the Done confirmation. Plain Enter keeps inserting newlines.
 Final submission waits for all pending and in-flight saves to be acknowledged.
