@@ -295,3 +295,30 @@ def test_the_callers_publish_hook_never_runs_in_tests(base, review_dir, capsys, 
     assert "VERDICT_PUBLISH_HOOK" not in os.environ
     code, _, err = run(capsys, "publish", str(review_dir))
     assert code == 0 and "hook" not in err
+
+
+@pytest.mark.parametrize("gap, delimiter", [("\n\n", "|---|---|"), ("\n", "|---|---|---|")])
+def test_malformed_table_is_returned_to_author_before_publish(
+    base, tmp_path, capsys, gap, delimiter
+):
+    notes = tmp_path / "notes.md"
+    notes.write_text(
+        "# Table\n\n" + gap.join(["| Project | Status |", delimiter, "| Example | Active |"])
+    )
+    with pytest.raises(SystemExit, match="table.*delimiter"):
+        run(capsys, "publish", str(notes))
+    assert httpx.get(f"{base}/api/reviews").json()["reviews"] == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "| A | B |\n|---|---|\n| x | y |",
+        "```\n| A | B |\n\n|---|---|\n```",
+        "`|---|---|`",
+    ],
+)
+def test_table_validation_keeps_valid_tables_and_literal_examples(source):
+    from verdict.main import render_markdown
+
+    assert render_markdown(source)

@@ -548,3 +548,107 @@ def test_an_open_tab_reloads_when_the_page_is_replaced(server, tmp_path):
     review = publish(base, files={"index.html": v1})
     result = browser_result(review["url"], tmp_path, 8000)
     assert result == {"page": "v2"}
+
+
+COMMENT_ANSWER_PAGE = b"""<html><body>
+<p data-item="q" data-choices="yes|no"><span>Question</span></p>
+<p data-item="untouched" data-input="answer">Unanswered</p>
+<script>
+const realFetch = window.fetch;
+window.fetch = (url, opts) => realFetch(String(url).replace(/wait=\\d+/, "wait=0"), opts);
+const pause = ms => new Promise(r => setTimeout(r, ms));
+const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+(async () => {
+ while (!button('Done')) await pause(50);
+ button('comment mode').click();
+ document.querySelector('[data-item="q"] span').click();
+ document.querySelector('.vd-sheet textarea').value = 'Use another approach';
+ button('Add note').click();
+ await pause(900);
+ document.querySelector('.vd-toggle').click();
+ const progress = document.querySelector('.vd-status').textContent;
+ button('Done').click();
+ document.body.dataset.result = JSON.stringify({progress, sheet:document.querySelector('.vd-confirm').innerText});
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_element_comment_counts_as_answer_only_for_its_question(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": COMMENT_ANSWER_PAGE})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert "1/2 answered" in result["progress"]
+    assert "1 left unanswered" in result["sheet"]
+    state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+    assert state["answers"] == {}
+    assert state["comments"][0]["item"] == "q"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize(
+    "action, expected",
+    [
+        (
+            "document.querySelector('.vd-note').click(); document.querySelector('.vd-sheet textarea').value='Alternative'; button('Add note').click();",
+            1,
+        ),
+        (
+            "const box=document.querySelector('.vd-slot textarea'); box.value='Typed answer'; box.dispatchEvent(new Event('input'));",
+            1,
+        ),
+        (
+            "const box=document.querySelector('.vd-slot textarea'); box.value='   '; box.dispatchEvent(new Event('input'));",
+            2,
+        ),
+    ],
+)
+def test_done_counts_notes_and_nonblank_text(server, tmp_path, action, expected):
+    base, _ = server
+    page = COMMENT_ANSWER_PAGE.replace(
+        b" button('comment mode').click();\n document.querySelector('[data-item=\"q\"] span').click();\n document.querySelector('.vd-sheet textarea').value = 'Use another approach';\n button('Add note').click();",
+        action.encode(),
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert f"{expected} left unanswered" in result["sheet"]
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("selector", [".vd-slot textarea", ".vd-general", ".vd-sheet textarea"])
+def test_cmd_enter_submits_text_with_explicit_done_confirmation(server, tmp_path, selector):
+    base, _ = server
+    action = """
+    const selector = SELECTOR;
+    if (selector === '.vd-sheet textarea') document.querySelector('.vd-note').click();
+    const box = document.querySelector(selector);
+    box.focus(); box.value = 'Keyboard answer'; box.dispatchEvent(new Event('input'));
+    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+    const plainEnter = !document.querySelector('.vd-confirm');
+    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, isComposing:true, bubbles:true, cancelable:true}));
+    const composing = !document.querySelector('.vd-confirm');
+    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, bubbles:true, cancelable:true}));
+    await pause(900);
+    document.body.dataset.result = JSON.stringify({
+      plainEnter, composing, confirmation:!!document.querySelector('.vd-confirm'),
+      noteDialog:!!document.querySelector('.vd-sheet:not(.vd-confirm)')
+    });
+    """.replace("SELECTOR", json.dumps(selector))
+    page = (
+        COMMENT_ANSWER_PAGE.split(b" button('comment mode').click();")[0]
+        + action.encode()
+        + b"})();</script></body></html>"
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert result["plainEnter"] and result["composing"]
+    assert result["confirmation"] is (selector != ".vd-sheet textarea")
+    assert not result["noteDialog"]
+    state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+    assert state["status"] == "open"
+    if selector == ".vd-sheet textarea":
+        assert state["comments"][0]["text"] == "Keyboard answer"
+    elif selector == ".vd-general":
+        assert state["general"] == "Keyboard answer"
+    else:
+        assert state["answers"]["untouched"]["text"] == "Keyboard answer"

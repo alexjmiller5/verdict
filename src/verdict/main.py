@@ -53,6 +53,14 @@ def render_markdown(text: str) -> bytes:
     a card. Raw HTML lines (the decision markup) pass through untouched; the server's
     injected stylesheet styles the rest."""
     body = markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists"])
+    # A delimiter left in a paragraph means the table extension could not parse it.
+    for paragraph in re.findall(r"<p>(.*?)</p>", body, re.DOTALL):
+        prose = re.sub(r"<code>.*?</code>", "", paragraph, flags=re.DOTALL)
+        if re.search(r"^\s*\|?\s*:?-+:?\s*\|[\s|:~-]*$", prose, re.MULTILINE):
+            raise SystemExit(
+                "Malformed Markdown table: keep header, delimiter and rows adjacent; "
+                "match the header and delimiter column counts before publishing."
+            )
     lead, *cards = re.split(r"(?=<h2[ >])", body)
     sections = "".join(
         f'<section class="card" data-section="s{n}">{card}</section>'

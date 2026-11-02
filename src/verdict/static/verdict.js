@@ -37,6 +37,7 @@
     parent.append(...after);
   };
   const typing = (box) => box === document.activeElement;
+  const submitKey = (e) => e.key === "Enter" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing;
 
   const items = () => [...document.querySelectorAll("[data-item]")];
   const answerable = () => items().filter((i) => i.dataset.choices || "input" in i.dataset);
@@ -49,6 +50,13 @@
     return item.dataset.default || choices[0] || null;
   };
   const answer = (key) => state.answers[key] || {};
+
+  const isAnswered = (item) => {
+    const key = item.dataset.item;
+    const current = answer(key);
+    return !!(current.choice || current.text?.trim() ||
+      state.comments.some((c) => c.item === key && c.text?.trim()));
+  };
 
   // --- persistence -------------------------------------------------------
 
@@ -196,6 +204,9 @@
       sheet.remove();
       render();
     };
+    box.addEventListener("keydown", (e) => {
+      if (submitKey(e)) { e.preventDefault(); save(); }
+    });
     sheet.append(
       el("div", { class: "vd-sheet-head" }, `Note on: ${snippet || target.tagName}`),
       box,
@@ -242,7 +253,7 @@
     document.querySelectorAll(".vd-confirm").forEach((s) => s.remove());
     const sheet = el("div", { class: "vd-sheet vd-confirm" });
     const send = () => { sheet.remove(); finish(); };
-    const left = answerable().filter((i) => !answer(i.dataset.item).choice && !answer(i.dataset.item).text).length;
+    const left = answerable().filter((i) => !isAnswered(i)).length;
     sheet.append(
       el("div", { class: "vd-sheet-head" }, "Send your answers to the agent?"),
       left ? el("div", {}, `${left} left unanswered; the agent will ask about ${left === 1 ? "it" : "them"}.`) : "",
@@ -276,7 +287,7 @@
     const closed = state.status === "closed";
     if (!typing(general)) general.value = state.general || "";
     const total = answerable().length;
-    const answered = answerable().filter((i) => answer(i.dataset.item).choice || answer(i.dataset.item).text).length;
+    const answered = answerable().filter(isAnswered).length;
     const progress = total ? `${answered}/${total} answered` : "nothing to answer";
     statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`);
     rebuild(
@@ -320,6 +331,10 @@
     document.addEventListener("click", onPageClick, true);
     // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
     document.addEventListener("keydown", (e) => {
+      if (submitKey(e) && e.target.matches(".vd-slot textarea, .vd-general") && state.status === "open") {
+        e.preventDefault();
+        confirmDone();
+      }
       if (e.ctrlKey && e.altKey && !e.metaKey && e.code === "KeyC") {
         e.preventDefault();
         toggleCommentMode();

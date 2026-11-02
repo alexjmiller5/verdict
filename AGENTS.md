@@ -27,6 +27,9 @@ design: the whole agent contract is the `verdict` CLI.
   live sync (it aborts its poll when hidden, resumes when shown): the server
   speaks plain HTTP/1.1, where a browser opens six connections per host, so
   polls parked in background review tabs would stall every save and page load.
+- Markdown publication rejects table delimiters left as paragraph text, with
+  instructions to remove blank lines and match header/delimiter columns.
+  Fenced and inline code examples remain literal.
 - **The CLI** (`src/verdict/main.py`) talks to the server over HTTP
   (`VERDICT_URL`), so it works from any machine on the same network.
 
@@ -59,7 +62,11 @@ done) in place of Done.
 Done sends only what the reviewer touched: an untouched item is absent from
 `answers` (unanswered). `defaulted: true` means the reviewer took the
 recommendation with an accept button (section or page-wide), which is a
-decision. Done first asks "Send your answers to the agent?", counts what is
+decision. Nonblank item notes and element comments within an item count as answers,
+alongside choices and nonblank text. General notes do not answer every item.
+Cmd+Enter saves an open note; in an answer or general-notes textarea it opens
+the Done confirmation. Plain Enter keeps inserting newlines.
+Done first asks "Send your answers to the agent?", counts what is
 left unanswered, and says whether an agent is listening: any waiter (a
 `verdict wait` heartbeat) seen in the last two minutes.
 
