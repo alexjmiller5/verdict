@@ -164,6 +164,13 @@ class Store:
             self._bump(state)
             return self._public(state)
 
+    def reopen(self, rid: str) -> dict:
+        with self.cond:
+            state = self._state(rid)
+            state.update(status="open", done_at=None, closed_at=None)
+            self._bump(state)
+            return self._public(state)
+
     def delete(self, rid: str) -> None:
         with self.cond:
             self.states.pop(rid, None)

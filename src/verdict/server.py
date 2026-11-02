@@ -10,7 +10,8 @@ Routes
   GET  /api/reviews/<id>[?wait=s&version=n]   state, long-polling on version
   PUT  /api/reviews/<id>/state        merge {answers, comments, general, status}
   PUT  /api/reviews/<id>/files        replace the page {title?, files}; keeps answers, reopens
-  POST /api/reviews/<id>/close        the agent consumed the answers
+  POST /api/reviews/<id>/close        close the review
+  POST /api/reviews/<id>/reopen       reopen, preserving answers and files
   POST /api/reviews/<id>/waiters      {pid, host} heartbeat from `verdict wait`
   POST /api/reviews/<id>/touch        backdate timestamps (gc rehearsal)
   POST /api/gc                        {stale_days, purge_days} -> report
@@ -62,14 +63,18 @@ def decode_files(data: dict) -> dict[str, bytes]:
 
 def index_page(reviews: list[dict]) -> bytes:
     rows = "".join(
-        f'<li class="{"vd-finished" if r["status"] != "open" else "vd-open"}">'
+        f'<li data-review="{r["id"]}" data-status="{r["status"]}" class="{"vd-finished" if r["status"] != "open" else "vd-open"}">'
         f'<a href="/r/{r["id"]}/">#{r["number"]} {html.escape(r["title"])}</a>'
-        f" <small>{r['status']} · {r['created'][:10]}</small></li>"
+        f" <small>{r['status']} · {r['created'][:10]}</small> "
+        f'<button type="button" data-action="{"reopen" if r["status"] == "closed" else "close"}" '
+        f'aria-label="{"Reopen" if r["status"] == "closed" else "Close"} review #{r["number"]}">'
+        f"{'Reopen' if r['status'] == 'closed' else 'Close'}</button></li>"
         for r in sorted(reviews, key=lambda r: (r["status"] != "open", r["created"], r["number"]))
     )
     return (
         "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
         "<title>Verdict</title><link rel=stylesheet href=/_verdict/verdict.css>"
+        "<script defer src=/_verdict/verdict.js></script>"
         f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>No reviews yet.</li>'}</ul></main>"
     ).encode()
 
@@ -180,6 +185,9 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
                     if action == "close":
                         log.info("closed", review=rid)
                         return self.send_json(200, store.close(rid))
+                    if action == "reopen":
+                        log.info("reopened", review=rid)
+                        return self.send_json(200, store.reopen(rid))
                     if action == "waiters":
                         store.waiter(rid, int(data["pid"]), str(data.get("host", "")))
                         return self.send_json(200, {"ok": True})

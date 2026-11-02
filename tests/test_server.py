@@ -726,3 +726,146 @@ def test_done_waits_for_acknowledged_saves_and_retains_failed_text_and_notes(
     assert state["answers"]["q"]["text"] == "Retain this answer"
     assert state["comments"][0]["text"] == "Retain this note"
     assert state["general"] == ("" if mode == "delayed-empty" else "Latest unsaved general")
+
+
+def test_explicit_reopen_preserves_review_content_and_identity(server):
+    base, store = server
+    review = publish(base)
+    rid = review["id"]
+    store.update(
+        rid,
+        {
+            "answers": {"a": {"choice": "no"}},
+            "general": "Keep this",
+            "comments": [{"item": "a", "text": "Keep note"}],
+            "status": "done",
+        },
+    )
+    closed = store.close(rid)
+    assert (
+        httpx.put(f"{base}/api/reviews/{rid}/state", json={"status": "open"}).json()["status"]
+        == "closed"
+    )
+    r = httpx.post(f"{base}/api/reviews/{rid}/reopen")
+    assert r.status_code == 200
+    reopened = r.json()
+    assert reopened["status"] == "open"
+    assert reopened["done_at"] is None and reopened["closed_at"] is None
+    for field in ["answers", "comments", "general", "number", "revision"]:
+        assert reopened[field] == closed[field]
+    assert store.file_path(rid, "index.html").read_bytes() == PAGE
+    assert Store(store.root).get(rid)["status"] == "open"
+    assert httpx.post(f"{base}/api/reviews/missing/reopen").status_code == 404
+
+
+CENTERED_DONE_PAGE = b"""<html><body><p data-item="q" data-choices="yes|no">Q</p>
+<script>
+const pause = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+ let done;
+ while (!(done=[...document.querySelectorAll('button')].find(b=>b.textContent==='Done'))) await pause(50);
+ done.click();
+ const dialog=document.querySelector('.vd-confirm');
+ const r=dialog.getBoundingClientRect();
+ document.body.dataset.result=JSON.stringify({
+  modal:dialog.matches(':modal'), focus:document.activeElement.textContent,
+  width:r.width, height:r.height, x:r.x+r.width/2, y:r.y+r.height/2,
+  viewport:[innerWidth,innerHeight]
+ });
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_done_confirmation_is_a_compact_centered_modal(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": CENTERED_DONE_PAGE})
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result["modal"]
+    assert result["focus"] == "Keep editing"
+    assert result["width"] <= 448 and result["height"] < result["viewport"][1]
+    assert abs(result["x"] - result["viewport"][0] / 2) < 2
+    assert abs(result["y"] - result["viewport"][1] / 2) < 2
+
+
+INDEX_CONTROLS_PAGE = rb"""<html><body><iframe src="/" style="width:360px;height:640px"></iframe>
+<script>
+const realFetch=window.fetch;
+window.fetch=(url,opts)=>realFetch(String(url).replace(/wait=\d+/, 'wait=0'),opts);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+const frame=document.querySelector('iframe');
+const doc=()=>frame.contentDocument;
+const row=()=>doc()?.querySelector('[data-review="TARGET"]');
+const wait=async action=>{const start=Date.now();while(!action()) {if(Date.now()-start>2500) throw Error('Missing review controls'); await pause(50);}};
+const state=async()=> (await (await fetch('/api/reviews/TARGET')).json());
+(async()=>{
+ await wait(()=>row()?.querySelector('button'));
+ row().querySelector('button').click();
+ const dialog=doc().querySelector('.vd-confirm');
+ const r=dialog.getBoundingClientRect();
+ const result={modal:dialog.matches(':modal'),width:r.width,
+   centered:Math.abs(r.x+r.width/2-frame.contentWindow.innerWidth/2)<2 && Math.abs(r.y+r.height/2-frame.contentWindow.innerHeight/2)<2};
+ [...dialog.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click();
+ result.cancelled=(await state()).status;
+ row().querySelector('button').click();
+ doc().querySelector('.vd-confirm .vd-primary').click();
+ await wait(()=>row()?.dataset.status==='closed');
+ result.closed=await state();
+ row().querySelector('button').click();
+ result.reopenLabel=doc().querySelector('.vd-confirm .vd-primary').textContent;
+ doc().querySelector('.vd-confirm .vd-primary').click();
+ await wait(()=>row()?.dataset.status==='open');
+ result.reopened=await state();
+ document.body.dataset.result=JSON.stringify(result);
+})().catch(error=>document.body.dataset.result=JSON.stringify({error:String(error)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_reviews_list_confirms_close_and_reopens_without_losing_answers(server, tmp_path):
+    base, store = server
+    review = publish(base, title="Synthetic <review>")
+    store.update(review["id"], {"answers": {"a": {"choice": "no"}}, "general": "Preserve"})
+    driver = publish(
+        base, files={"index.html": INDEX_CONTROLS_PAGE.replace(b"TARGET", review["id"].encode())}
+    )
+    result = browser_result(driver["url"], tmp_path, 6000)
+    assert result["modal"] and result["centered"] and result["width"] <= 328
+    assert result["cancelled"] == "open"
+    assert result["closed"]["status"] == "closed"
+    assert result["reopenLabel"] == "Reopen review"
+    assert result["reopened"]["status"] == "open"
+    for field in ["answers", "comments", "general", "number", "revision"]:
+        assert result["reopened"][field] == result["closed"][field]
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_reviews_list_failed_action_stays_open_and_can_retry(server, tmp_path):
+    base, _ = server
+    review = publish(base)
+    page = INDEX_CONTROLS_PAGE.replace(b"TARGET", review["id"].encode())
+    start = page.index(b" row().querySelector('button').click();")
+    end = page.index(b" result.closed=await state();")
+    page = (
+        page[:start]
+        + rb"""
+ const original=frame.contentWindow.fetch;
+ frame.contentWindow.fetch=()=>Promise.resolve(new Response('',{status:503}));
+ row().querySelector('button').click();
+ doc().querySelector('.vd-confirm .vd-primary').click();
+ await wait(()=>row()?.querySelector('[role="alert"]'));
+ const result={error:row().querySelector('[role="alert"]').textContent,
+   failedStatus:(await state()).status, enabled:!row().querySelector('button').disabled};
+ frame.contentWindow.fetch=original;
+ row().querySelector('button').click();
+ doc().querySelector('.vd-confirm .vd-primary').click();
+ await wait(()=>row()?.dataset.status==='closed');
+"""
+        + page[end:]
+    )
+    driver = publish(base, files={"index.html": page})
+    result = browser_result(driver["url"], tmp_path, 6000)
+    assert result["failedStatus"] == "open" and result["enabled"]
+    assert "Try again" in result["error"]
+    assert result["closed"]["status"] == "closed"
+    assert result["reopened"]["status"] == "open"

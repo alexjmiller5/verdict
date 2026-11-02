@@ -102,7 +102,8 @@ GET  /api/reviews              list (summaries)
 GET  /api/reviews/<id>?wait=30&version=N   state; long-polls until version changes
 PUT  /api/reviews/<id>/state   merge {answers, comments, general, status: open|done}
 PUT  /api/reviews/<id>/files   {title?, files:{name: base64}} -> {id, url, reopened}
-POST /api/reviews/<id>/close   agent consumed it
+POST /api/reviews/<id>/close   close the review
+POST /api/reviews/<id>/reopen  reopen, keeping files, answers and number
 POST /api/reviews/<id>/waiters {pid, host} heartbeat
 POST /api/reviews/<id>/touch   backdate timestamps (gc rehearsal)
 POST /api/gc                   {stale_days, purge_days} -> {stale_open, purged, dead_waiters}
@@ -147,5 +148,12 @@ microtask, never a timer. Still verify in a real browser against `just dev`
 after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
+
+Confirmations use a compact, centered native dialog with a backdrop, keyboard
+focus containment, Escape dismissal and a safe cancel action focused initially.
+The front page has confirmed Close/Reopen controls. Reopening clears completion
+timestamps and preserves the page, answers, notes, revision and number; ordinary
+answer autosaves cannot reopen closed reviews. Failed actions show an inline
+error and keep the original state available for retry.
 
 The front page lists every retained review. Each review has a durable sequential number, assigned on first creation and preserved across restart and reopening. Finished reviews remain linked at the bottom in muted text. Every review includes an All reviews link to the front page. The CLI publish output and list include the review number.

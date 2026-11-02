@@ -27,6 +27,48 @@
     return node;
   };
 
+  const confirmDialog = (title, details, label, action, cancelLabel = "Cancel") => {
+    document.querySelectorAll(".vd-confirm").forEach((dialog) => { dialog.close(); dialog.remove(); });
+    const dialog = el("dialog", { class: "vd-sheet vd-confirm", "aria-labelledby": "vd-confirm-title" });
+    const dismiss = () => { dialog.close(); dialog.remove(); };
+    dialog.addEventListener("close", () => dialog.remove());
+    dialog.append(
+      el("div", { class: "vd-sheet-head", id: "vd-confirm-title" }, title),
+      ...details,
+      el("div", { class: "vd-row" },
+        el("button", { type: "button", onclick: dismiss, autofocus: "" }, cancelLabel),
+        el("button", { type: "button", class: "vd-primary", onclick: () => { dismiss(); action(); } }, label))
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+  };
+
+  const bootIndex = () => {
+    document.querySelectorAll(".vd-index [data-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const row = button.closest("[data-review]");
+        const action = button.dataset.action;
+        const verb = action === "close" ? "Close" : "Reopen";
+        confirmDialog(`${verb} ${row.querySelector("a").textContent}?`,
+          [el("div", {}, action === "close"
+            ? "It stays in this list and can be reopened. Answers and notes are kept."
+            : "The review becomes open again. Existing answers and notes are kept.")],
+          `${verb} review`, async () => {
+            button.disabled = true;
+            row.querySelector(".vd-index-error")?.remove();
+            try {
+              const r = await fetch(`/api/reviews/${row.dataset.review}/${action}`, { method: "POST" });
+              if (!r.ok) throw new Error(`request failed: ${r.status}`);
+              location.reload();
+            } catch {
+              button.disabled = false;
+              row.append(el("div", { class: "vd-index-error", role: "alert" }, `Could not ${action} this review. Try again.`));
+            }
+          });
+      });
+    });
+  };
+
   // Swap a container's children around `keep` without detaching it: re-rendering
   // after every autosave must not blur the text box the reviewer is typing in.
   const rebuild = (parent, keep, before, after) => {
@@ -263,21 +305,13 @@
   // An agent waiting on this review heartbeats as a waiter (`verdict wait`).
   const listening = () => (state.waiters || []).some((w) => Date.now() - Date.parse(w.seen) < 120000);
   const confirmDone = () => {
-    document.querySelectorAll(".vd-confirm").forEach((s) => s.remove());
-    const sheet = el("div", { class: "vd-sheet vd-confirm" });
-    const send = () => { sheet.remove(); finish(); };
     const left = answerable().filter((i) => !isAnswered(i)).length;
-    sheet.append(
-      el("div", { class: "vd-sheet-head" }, "Send your answers to the agent?"),
-      left ? el("div", {}, `${left} left unanswered; the agent will ask about ${left === 1 ? "it" : "them"}.`) : "",
-      el("div", {}, listening()
-        ? "The agent is listening and gets them right away."
-        : "No agent is listening right now; it reads them the next time it checks."),
-      el("div", { class: "vd-row" },
-        el("button", { type: "button", class: "vd-primary", onclick: send }, "Send"),
-        el("button", { type: "button", onclick: () => sheet.remove() }, "Keep editing"))
-    );
-    document.body.append(sheet);
+    const details = [];
+    if (left) details.push(el("div", {}, `${left} left unanswered; the agent will ask about ${left === 1 ? "it" : "them"}.`));
+    details.push(el("div", {}, listening()
+      ? "The agent is listening and gets them right away."
+      : "No agent is listening right now; it reads them the next time it checks."));
+    confirmDialog("Send your answers to the agent?", details, "Send", finish, "Keep editing");
   };
   const finish = async () => {
     if (!await flush()) return;
@@ -306,7 +340,7 @@
     const total = answerable().length;
     const answered = answerable().filter(isAnswered).length;
     const progress = total ? `${answered}/${total} answered` : "nothing to answer";
-    statusEl = el("span", { class: "vd-status" }, closed ? "closed by the agent" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`);
+    statusEl = el("span", { class: "vd-status" }, closed ? "closed" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`);
     rebuild(
       bar,
       general,
@@ -377,6 +411,7 @@
     poll();
   };
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  const start = () => location.pathname === "/" ? bootIndex() : boot();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
 })();
