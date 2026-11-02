@@ -134,10 +134,12 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
             self.error(404, "not found")
 
         def asset(self, name: str) -> None:
-            if name not in ("verdict.js", "verdict.css"):
+            if name not in ("verdict.js", "verdict.css", "chevron-right.svg"):
                 return self.error(404, "not found")
             content = resources.files("verdict").joinpath("static", name).read_bytes()
-            mime = "text/javascript" if name.endswith(".js") else "text/css"
+            mime = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml"}[
+                "." + name.rsplit(".", 1)[1]
+            ]
             self.send(200, content, f"{mime}; charset=utf-8")
 
         def page(self, rid: str, name: str) -> None:

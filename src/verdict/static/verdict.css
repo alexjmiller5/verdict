@@ -38,7 +38,7 @@
   a { color: var(--vd-accent); }
   [data-choices], [data-input] { margin-top: .6rem; font-weight: 600; }
 }
-body { padding-bottom: 14rem; }
+.vd-review { max-width: none; margin: 0; box-sizing: border-box; padding-bottom: calc(var(--vd-pane-height, 14rem) + 1rem); }
 .vd-index { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: var(--vd-fg); background: var(--vd-bg); }
 .vd-index small { color: var(--vd-muted); }
 .vd-index ul { list-style: none; padding: 0; }
@@ -90,3 +90,29 @@ body.vd-done .vd-slot button:not(.vd-note) { opacity: .7; }
 .vd-confirm .vd-sheet-head { color: var(--vd-fg); font-weight: 600; }
 .vd-confirm .vd-row { justify-content: flex-end; margin-top: .5rem; }
 .vd-index-error { color: var(--vd-fg); margin-top: .5rem; }
+
+.vd-review .vd-home { padding-inline: 0; }
+.vd-pane-head { display: flex; gap: .75rem; align-items: flex-start; justify-content: space-between; }
+.vd-pane-heading { min-width: 0; display: flex; flex-direction: column; gap: .3rem; }
+.vd-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-pane-body { display: flex; flex-direction: column; gap: .75rem; }
+.vd-pane-body[hidden] { display: none; }
+.vd-pane-toggle { flex: 0 0 auto; display: grid; place-items: center; min-width: 2.75rem; min-height: 2.75rem; }
+.vd-pane-arrow { display: block; width: 1.25rem; height: 1.25rem; background: currentColor;
+  mask: url("/_verdict/chevron-right.svg") center / contain no-repeat; transform: rotate(90deg); }
+.vd-collapsed .vd-pane-arrow { transform: rotate(-90deg); }
+.vd-bar { max-height: 70dvh; overflow-y: auto; box-sizing: border-box; }
+@media (min-width: 64rem) {
+  .vd-review { padding-right: 21.5rem; padding-bottom: 1.25rem; }
+  .vd-review.vd-pane-collapsed { padding-right: 5rem; }
+  .vd-bar { left: auto; top: 0; width: 20rem; height: 100dvh; max-height: 100dvh;
+    border-top: 0; border-left: 1px solid var(--vd-line); padding: 1rem;
+    box-shadow: -4px 0 16px rgba(0,0,0,.06); gap: 1rem; }
+  .vd-bar .vd-row { justify-content: flex-start; }
+  .vd-bar .vd-general { min-height: 8rem; }
+  .vd-bar .vd-pane-arrow { transform: none; }
+  .vd-bar.vd-collapsed { width: 3.5rem; padding: .25rem; }
+  .vd-collapsed .vd-pane-heading { display: none; }
+  .vd-collapsed .vd-pane-head { justify-content: center; }
+  .vd-collapsed .vd-pane-arrow { transform: rotate(180deg); }
+}

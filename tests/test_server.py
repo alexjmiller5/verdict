@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -220,7 +221,10 @@ CHROME = next(
 def browser_result(url, tmp_path, budget):
     """Load url in headless Chrome; return the JSON the page left in body[data-result]."""
     args = ["--headless", "--no-first-run", f"--user-data-dir={tmp_path}/chrome"]
-    args += [f"--virtual-time-budget={budget}", "--dump-dom", url]
+    # An earlier document gives the tested tab ordinary browser history, so a
+    # review cannot close the DOM-dump harness after successfully submitting.
+    initial = "data:text/html," + quote(f"<script>location.href={json.dumps(url)}</script>")
+    args += [f"--virtual-time-budget={budget}", "--dump-dom", initial]
     proc = subprocess.Popen(
         [CHROME, *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True
     )
@@ -869,3 +873,178 @@ def test_reviews_list_failed_action_stays_open_and_can_retry(server, tmp_path):
     assert "Try again" in result["error"]
     assert result["closed"]["status"] == "closed"
     assert result["reopened"]["status"] == "open"
+
+
+PANE_CONTENT = rb"""<html><body><h1>Synthetic responsive review</h1>
+<section class="card" id="reading"><h2>Readable content</h2><p>Synthetic review content fills the available area.</p>
+<p data-item="q" data-input="Answer">Question</p></section>
+<script>const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);</script>
+</body></html>"""
+
+PANE_DRIVER = rb"""<html><body><iframe src="CHILD" style="border:0;width:WIDTHpx;height:HEIGHTpx"></iframe>
+<script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const frame=document.querySelector('iframe');
+ while(!frame.contentDocument?.querySelector('.vd-bar')) await pause(50);
+ const d=frame.contentDocument,w=frame.contentWindow,p=d.querySelector('.vd-bar');
+ const toggle=d.querySelector('.vd-pane-toggle');
+ const bounds=()=>{const r=p.getBoundingClientRect(),c=d.querySelector('#reading').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,contentWidth:c.width,contentRight:c.right,scrollWidth:d.documentElement.scrollWidth}};
+ const result={viewport:[w.innerWidth,w.innerHeight],expanded:bounds(),toggle:!!toggle};
+ if(!toggle){document.body.dataset.result=JSON.stringify(result);return;}
+ const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
+ toggle.click();
+ result.collapsed= bounds(); result.hidden=getComputedStyle(d.querySelector('.vd-pane-body')).display==='none';
+ result.ariaCollapsed=toggle.getAttribute('aria-expanded');
+ await pause(900);toggle.click();
+ result.expandedAgain=toggle.getAttribute('aria-expanded');
+ result.sameBox=note===d.querySelector('.vd-general');result.value=note.value;
+ document.body.dataset.result=JSON.stringify(result);
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("width,height", [(1280, 800), (375, 812)])
+def test_review_controls_collapse_and_leave_full_reading_space(server, tmp_path, width, height):
+    base, _ = server
+    child = publish(base, files={"index.html": PANE_CONTENT})
+    source = (
+        PANE_DRIVER.replace(b"CHILD", child["url"].encode())
+        .replace(b"WIDTH", str(width).encode())
+        .replace(b"HEIGHT", str(height).encode())
+    )
+    driver = publish(base, files={"index.html": source})
+    result = browser_result(driver["url"], tmp_path, 5000)
+    assert result["toggle"], result
+    assert (
+        result["hidden"]
+        and result["ariaCollapsed"] == "false"
+        and result["expandedAgain"] == "true"
+    )
+    assert result["sameBox"] and result["value"] == "Retain collapse note"
+    expanded, collapsed = result["expanded"], result["collapsed"]
+    assert expanded["scrollWidth"] <= width and collapsed["scrollWidth"] <= width
+    if width >= 1024:
+        assert abs(expanded["right"] - width) < 2 and expanded["height"] >= height - 2
+        assert 280 <= expanded["width"] <= 384
+        assert expanded["contentRight"] < expanded["x"]
+        assert collapsed["contentWidth"] > expanded["contentWidth"] + 200
+    else:
+        assert abs(expanded["bottom"] - height) < 2 and expanded["width"] == width
+        assert collapsed["height"] < expanded["height"] - 40
+    state = httpx.get(f"{base}/api/reviews/{child['id']}").json()
+    assert state["general"] == "Retain collapse note"
+
+
+CLOSE_ATTEMPT_PAGE = rb"""<html><body><p data-item="q" data-input="Answer">Question</p>
+<script>
+const original=window.fetch;const mode='MODE';
+const read=async()=> (await original(location.pathname.replace('/r/','/api/reviews/').replace(/\/$/,''))).json();
+const closeStates=[];window.close=()=>closeStates.push(read());
+window.fetch=(url,opts)=>{const p=opts?.method==='PUT'?JSON.parse(opts.body):{};
+ if((mode==='answer'&&p.answers)||(mode==='done'&&p.status==='done'))return Promise.resolve(new Response('',{status:503}));
+ return original(String(url).replace(/wait=\d+/,'wait=0'),opts);};
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{let done;while(!(done=[...document.querySelectorAll('button')].find(b=>b.textContent==='Done')))await pause(50);
+ const box=document.querySelector('.vd-slot textarea');box.value='Retain close answer';box.dispatchEvent(new Event('input'));
+ done.click();document.querySelector('.vd-confirm .vd-primary').click();
+ await pause(1200);
+ document.body.dataset.result=JSON.stringify({atClose:await Promise.all(closeStates),value:box.value,editable:!box.disabled,status:document.querySelector('.vd-status').textContent});
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("mode", ["success", "answer", "done"])
+def test_close_attempt_requires_acknowledged_done_and_preserves_failed_edits(
+    server, tmp_path, mode
+):
+    base, _ = server
+    review = publish(base, files={"index.html": CLOSE_ATTEMPT_PAGE.replace(b"MODE", mode.encode())})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert len(result["atClose"]) == (1 if mode == "success" else 0), result
+    if mode == "success":
+        assert result["atClose"][0]["status"] == "done"
+        assert result["atClose"][0]["answers"]["q"]["text"] == "Retain close answer"
+    else:
+        state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+        assert state["status"] == "open"
+        assert result["value"] == "Retain close answer" and result["editable"]
+        assert "not sent" in result["status"] or "not saved" in result["status"]
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_ordinary_review_tab_retains_honest_sent_and_close_fallback(server, tmp_path):
+    base, _ = server
+    source = CLOSE_ATTEMPT_PAGE.replace(
+        b"const closeStates=[];window.close=()=>closeStates.push(read());",
+        b'const closeStates=[];history.pushState(null,"","?ordinary=history");',
+    )
+    source = source.replace(
+        b"status:document.querySelector('.vd-status').textContent",
+        b"status:document.querySelector('.vd-status').textContent,history:history.length,opener:!!opener,fallback:document.querySelector('.vd-sent-help')?.textContent,closeButton:!!document.querySelector('.vd-close-tab')",
+    )
+    source = source.replace(
+        b"done.click();document.querySelector('.vd-confirm .vd-primary').click();",
+        b"document.querySelector('.vd-pane-toggle').click();box.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true}));document.querySelector('.vd-confirm .vd-primary').click();",
+    )
+    source = source.replace(
+        b"closeButton:!!document.querySelector('.vd-close-tab')",
+        b"closeButton:!!document.querySelector('.vd-close-tab'),paneVisible:getComputedStyle(document.querySelector('.vd-pane-body')).display!=='none'",
+    )
+    review = publish(base, files={"index.html": source.replace(b"MODE", b"success")})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert result["history"] > 1 and not result["opener"]
+    assert "sent" in result["status"]
+    assert "close this tab" in (result.get("fallback") or "").lower()
+    assert result["closeButton"] and result["paneVisible"]
+
+
+def test_review_disclosure_icon_is_served_as_local_svg(server):
+    base, _ = server
+    response = httpx.get(base + "/_verdict/chevron-right.svg")
+    assert response.status_code == 200 and response.headers["content-type"].startswith(
+        "image/svg+xml"
+    )
+    assert "<svg" in response.text and 'viewBox="0 0 24 24"' in response.text
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_done_locks_inputs_until_ack_and_does_not_close_embedded_review(server, tmp_path):
+    base, _ = server
+    page = CLOSE_ATTEMPT_PAGE.replace(
+        b"const closeStates=[];window.close=()=>closeStates.push(read());",
+        b"""const closeStates=[];window.close=()=>closeStates.push(read());let release,ready;
+const posted=new Promise(r=>ready=r);""",
+    )
+    page = page.replace(
+        b"return original(String(url).replace",
+        b"if(p.status==='done')return new Promise(resolve=>{release=()=>resolve(original(url,opts));ready();});\n return original(String(url).replace",
+    )
+    page = page.replace(
+        b" await pause(1200);",
+        b""" await posted;
+ const locked=box.disabled&&document.querySelector('.vd-general').disabled;
+ const early=closeStates.length;
+ release();await pause(900);""",
+    )
+    page = page.replace(
+        b"atClose:await Promise.all(closeStates)",
+        b"locked,early,atClose:await Promise.all(closeStates)",
+    )
+    review = publish(base, files={"index.html": page.replace(b"MODE", b"success")})
+    result = browser_result(review["url"], tmp_path, 5000)
+    assert result["locked"] and result["early"] == 0
+    assert len(result["atClose"]) == 1 and result["atClose"][0]["status"] == "done"
+    # A review embedded by another page must not close that containing tab.
+    child = publish(base, files={"index.html": CLOSE_ATTEMPT_PAGE.replace(b"MODE", b"success")})
+    outer = b"""<html><body><iframe src="URL"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.body.dataset.result)await pause(50);document.body.dataset.result=f.contentDocument.body.dataset.result;})();
+</script></body></html>""".replace(b"URL", child["url"].encode())
+    driver = publish(base, files={"index.html": outer})
+    result = browser_result(driver["url"], tmp_path / "embedded", 5000)
+    assert result["atClose"] == [] and result["value"] == "Retain close answer"

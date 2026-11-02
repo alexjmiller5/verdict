@@ -15,6 +15,7 @@
   let state = null;
   let saveTimer = null;
   let commentMode = false;
+  let finishing = false;
 
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
@@ -142,6 +143,7 @@
         return true;
       } catch (e) {
         pending = { ...patch, ...pending, answers: { ...patch.answers, ...pending.answers } };
+        if (paneBody) collapsePane(false);
         status("not saved - retrying; answers have not been sent");
         saveTimer = setTimeout(flush, 2000);
         return false;
@@ -237,6 +239,7 @@
   };
 
   const compose = (target, itemKey = null, existingIndex = null) => {
+    if (finishing) return;
     const existing = existingIndex === null ? null : state.comments[existingIndex];
     const snippet = (target.innerText || target.alt || target.tagName).trim().slice(0, 120);
     const sheet = el("div", { class: "vd-sheet" });
@@ -291,7 +294,7 @@
   };
 
   const onPageClick = (e) => {
-    if (!commentMode) return;
+    if (finishing || !commentMode) return;
     if (e.target.closest(".vd-bar, .vd-sheet, .vd-slot, .vd-pin")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -300,7 +303,16 @@
 
   // --- toolbar -------------------------------------------------------------
 
-  let bar, statusEl, general;
+  let bar, statusEl, general, paneBody, paneToggle;
+  let paneCollapsed = false;
+  const collapsePane = (collapsed) => {
+    paneCollapsed = collapsed;
+    paneBody.hidden = collapsed;
+    bar.classList.toggle("vd-collapsed", collapsed);
+    document.body.classList.toggle("vd-pane-collapsed", collapsed);
+    paneToggle.setAttribute("aria-expanded", String(!collapsed));
+    paneToggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} review controls`);
+  };
   const status = (text) => { if (statusEl) statusEl.textContent = text; };
   // An agent waiting on this review heartbeats as a waiter (`verdict wait`).
   const listening = () => (state.waiters || []).some((w) => Date.now() - Date.parse(w.seen) < 120000);
@@ -314,11 +326,31 @@
     confirmDialog("Send your answers to the agent?", details, "Send", finish, "Keep editing");
   };
   const finish = async () => {
-    if (!await flush()) return;
-    try { await put({ status: "done" }); }
-    catch { status("not sent - try Done again"); }
+    if (finishing) return;
+    finishing = true;
+    let sent = false;
+    render();
+    try {
+      if (!await flush()) return;
+      await put({ status: "done" });
+      sent = state.status === "done";
+    } catch {
+      collapsePane(false);
+      status("not sent - try Done again");
+    } finally {
+      const feedback = statusEl?.textContent;
+      finishing = false;
+      render();
+      if (state.status === "open" && feedback) status(feedback);
+    }
+    if (sent) collapsePane(false);
+    // Only a locally acknowledged submission may close its own top-level tab.
+    if (sent && window.top === window.self) {
+      try { window.close(); } catch {}
+    }
   };
   const toggleCommentMode = () => {
+    if (finishing) return;
     commentMode = !commentMode;
     document.body.classList.toggle("vd-comment-mode", commentMode);
     renderBar();
@@ -326,13 +358,24 @@
 
   const renderBar = () => {
     if (!bar) {
-      bar = el("div", { class: "vd-bar" });
+      bar = el("aside", { class: "vd-bar", "aria-label": "Review controls" });
       general = el("textarea", {
         class: "vd-text vd-general",
         placeholder: "general notes for the agent",
+        "aria-label": "General notes for the agent",
         oninput: (e) => queueSave({ general: e.target.value }),
       });
+      paneBody = el("div", { class: "vd-pane-body", id: "vd-pane-body" }, general);
+      paneToggle = el("button", {
+        type: "button", class: "vd-pane-toggle", "aria-expanded": "true", "aria-controls": "vd-pane-body",
+        "aria-label": "Collapse review controls", onclick: () => collapsePane(!paneCollapsed),
+      }, el("span", { class: "vd-pane-arrow", "aria-hidden": "true" }));
+      statusEl = el("span", { class: "vd-status" });
+      bar.append(el("div", { class: "vd-pane-head" },
+        el("div", { class: "vd-pane-heading" }, el("strong", { class: "vd-title" }, state.title), statusEl), paneToggle), paneBody);
+      document.body.classList.add("vd-review");
       document.body.append(bar);
+      new ResizeObserver(() => document.body.style.setProperty("--vd-pane-height", `${bar.getBoundingClientRect().height}px`)).observe(bar);
     }
     const done = state.status === "done";
     const closed = state.status === "closed";
@@ -340,11 +383,11 @@
     const total = answerable().length;
     const answered = answerable().filter(isAnswered).length;
     const progress = total ? `${answered}/${total} answered` : "nothing to answer";
-    statusEl = el("span", { class: "vd-status" }, closed ? "closed" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`);
+    statusEl.textContent = closed ? "closed" : done ? "sent to the agent" : `${progress} · ${state.comments.length} notes`;
     rebuild(
-      bar,
+      paneBody,
       general,
-      [el("div", { class: "vd-row" }, el("strong", {}, state.title), statusEl)],
+      [],
       [el("div", { class: "vd-row" },
         el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: toggleCommentMode, title: "Ctrl+Option+C" }, commentMode ? "tap anything to add a note…" : "comment mode"),
         hasChoices(document) ? el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations") : "",
@@ -352,8 +395,9 @@
           ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
           : total
             ? el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
-            : el("button", { type: "button", class: "vd-primary", onclick: finish }, "Got it")
-      )]
+            : el("button", { type: "button", class: "vd-primary", onclick: finish }, "Got it"),
+        done ? el("button", { type: "button", class: "vd-close-tab", onclick: () => window.close() }, "Close tab") : ""
+      ), ...(done ? [el("div", { class: "vd-sent-help", role: "status" }, "Sent. You can close this tab if your browser keeps it open.")] : [])]
     );
   };
 
@@ -369,6 +413,7 @@
     renderPins();
     renderBar();
     document.body.classList.toggle("vd-done", state.status !== "open");
+    document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-bar button, .vd-bar textarea, .vd-section-accept, .vd-pin").forEach((control) => { control.disabled = finishing; });
   };
 
   const boot = async () => {

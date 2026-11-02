@@ -19,7 +19,7 @@ design: the whole agent contract is the `verdict` CLI.
   `<section class="card" data-section="sN">`, raw HTML lines (the decision
   markup) pass through. The server injects `/_verdict/verdict.js` +
   `verdict.css`, which read the page contract below, render answer slots,
-  comment pins and the bottom bar, and autosave through the JSON API.
+  comment pins and the review pane, and autosave through the JSON API.
   `verdict.css` also carries base page styles (type, cards, tables, images,
   both color schemes) in `@layer verdict-page`, so any style the page brings
   wins and a page with no `<style>` still reads well on a phone. No build
@@ -67,7 +67,13 @@ alongside choices and nonblank text. General notes do not answer every item.
 Cmd+Enter saves an open note; in an answer or general-notes textarea it opens
 the Done confirmation. Plain Enter keeps inserting newlines.
 Final submission waits for all pending and in-flight saves to be acknowledged.
-A failed save keeps the review open and retains edits for retry.
+Controls are disabled during that submission so new edits cannot race its final save.
+A failed save keeps the review open, restores editable controls and retains edits for retry.
+After a locally acknowledged Done (or Got it), a top-level review attempts to close
+only its own tab. Embedded reviews never close their containing tab, and loading
+or remotely receiving an already-done state never auto-closes a page. Browsers may
+refuse to close an ordinary tab; the sent page keeps an honest manual-close hint
+and a Close tab button. Never promise that every browser tab can be closed.
 Done first asks "Send your answers to the agent?", counts what is
 left unanswered, and says whether an agent is listening: any waiter (a
 `verdict wait` heartbeat) seen in the last two minutes.
@@ -148,6 +154,15 @@ microtask, never a timer. Still verify in a real browser against `just dev`
 after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
+
+Review controls sit on the right at widths of at least 64rem; the page uses the
+remaining width. Smaller views keep compact bottom controls. The disclosure arrow
+collapses the controls and frees reading space, with a persistent accessible
+expand button. Collapse state is per page, without stored preferences. Resizing
+and autosave preserve the existing general-notes textarea; a failed save expands
+the controls to show retry feedback. A ResizeObserver reserves the actual mobile
+pane height so the last content can scroll clear of it. The disclosure uses a
+bundled Tabler SVG and MIT license, with no runtime external icon request.
 
 Confirmations use a compact, centered native dialog with a backdrop, keyboard
 focus containment, Escape dismissal and a safe cancel action focused initially.
