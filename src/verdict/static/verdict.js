@@ -67,7 +67,8 @@
       body: JSON.stringify(patch),
     });
     if (!r.ok) throw new Error(`save failed: ${r.status}`);
-    state = await r.json();
+    const saved = await r.json();
+    state = { ...saved, ...pending, answers: { ...saved.answers, ...pending.answers } };
     if (replaced(state)) return location.reload();
     render();
   };
@@ -84,18 +85,30 @@
     saveTimer = setTimeout(flush, 400);
   };
   let pending = {};
+  let saving = null;
   const flush = async () => {
+    clearTimeout(saveTimer);
+    // Done must wait for the autosave already on the wire, including its failure.
+    while (saving) if (!await saving) return false;
     const patch = pending;
     pending = {};
-    if (!Object.keys(patch).length) return;
-    try {
-      await put(patch);
-      status("saved");
-    } catch (e) {
-      status("not saved - retrying");
-      pending = { ...patch, ...pending };
-      saveTimer = setTimeout(flush, 2000);
-    }
+    if (!Object.keys(patch).length) return true;
+    saving = (async () => {
+      try {
+        await put(patch);
+        status("saved");
+        return true;
+      } catch (e) {
+        pending = { ...patch, ...pending, answers: { ...patch.answers, ...pending.answers } };
+        status("not saved - retrying; answers have not been sent");
+        saveTimer = setTimeout(flush, 2000);
+        return false;
+      } finally {
+        saving = null;
+      }
+    })();
+    if (!await saving) return false;
+    return flush();
   };
 
   // --- item slots ----------------------------------------------------------
@@ -266,7 +279,11 @@
     );
     document.body.append(sheet);
   };
-  const finish = () => flush().then(() => put({ status: "done" }));
+  const finish = async () => {
+    if (!await flush()) return;
+    try { await put({ status: "done" }); }
+    catch { status("not sent - try Done again"); }
+  };
   const toggleCommentMode = () => {
     commentMode = !commentMode;
     document.body.classList.toggle("vd-comment-mode", commentMode);

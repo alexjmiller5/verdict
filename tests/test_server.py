@@ -652,3 +652,77 @@ def test_cmd_enter_submits_text_with_explicit_done_confirmation(server, tmp_path
         assert state["general"] == "Keyboard answer"
     else:
         assert state["answers"]["untouched"]["text"] == "Keyboard answer"
+
+
+SUBMIT_SAVE_PAGE = rb"""<html><body>
+<p data-item="q" data-input="Answer">Question</p>
+<script>
+const mode = 'MODE';
+const realFetch = window.fetch;
+const pause = ms => new Promise(r => setTimeout(r, ms));
+const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
+let release, started, atDone, active = 0, activeAtDone;
+const saveStarted = new Promise(r => started = r);
+let fail = mode === 'rejected', hold = mode.startsWith('delayed');
+window.fetch = (url, opts) => {
+ const patch = opts?.method === 'PUT' ? JSON.parse(opts.body) : {};
+ if (patch.answers || patch.comments || patch.general) {
+   active++;
+   const send = () => realFetch(url, opts).then(r => { active--; return r; });
+   if (hold) {
+     hold = false;
+     return new Promise(resolve => { release = () => resolve(send()); started(); });
+   }
+   if (fail) { active--; return Promise.resolve(new Response('', {status:503})); }
+   return send();
+ }
+ if (patch.status === 'done') { activeAtDone = active; return read().then(s => { atDone = s; return realFetch(url, opts); }); }
+ return realFetch(String(url).replace(/wait=\d+/, 'wait=0'), opts);
+};
+const read = async () => (await realFetch(location.pathname.replace('/r/', '/api/reviews/').replace(/\/$/, ''))).json();
+(async () => {
+ while (!button('Done')) await pause(50);
+ const box = document.querySelector('.vd-slot textarea');
+ box.value = 'Retain this answer'; box.dispatchEvent(new Event('input'));
+ document.querySelector('.vd-note').click();
+ document.querySelector('.vd-sheet textarea').value = 'Retain this note'; button('Add note').click();
+ if (mode.startsWith('delayed')) await saveStarted;
+ const general = document.querySelector('.vd-general');
+ if (mode !== 'delayed-empty') { general.value = 'Latest unsaved general'; general.dispatchEvent(new Event('input')); }
+ general.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, bubbles:true}));
+ button('Send').click();
+ await pause(100);
+ const before = await read();
+ const retained = box.value;
+ if (mode.startsWith('delayed')) release();
+ else {
+   fail = false;
+   if (button('Done')) { button('Done').click(); button('Send').click(); }
+ }
+ await pause(1200);
+ document.body.dataset.result = JSON.stringify({before, retained, atDone, activeAtDone, after:await read()});
+})();
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("mode", ["delayed", "delayed-empty", "rejected"])
+def test_done_waits_for_acknowledged_saves_and_retains_failed_text_and_notes(
+    server, tmp_path, mode
+):
+    base, _ = server
+    review = publish(base, files={"index.html": SUBMIT_SAVE_PAGE.replace(b"MODE", mode.encode())})
+    result = browser_result(review["url"], tmp_path, 6000)
+    assert result["activeAtDone"] == 0
+    assert result["before"]["status"] == "open"
+    assert result["retained"] == "Retain this answer"
+    assert result["atDone"]["general"] == (
+        "" if mode == "delayed-empty" else "Latest unsaved general"
+    )
+    assert result["atDone"]["answers"]["q"]["text"] == "Retain this answer"
+    assert result["atDone"]["comments"][0]["text"] == "Retain this note"
+    state = result["after"]
+    assert state["status"] == "done"
+    assert state["answers"]["q"]["text"] == "Retain this answer"
+    assert state["comments"][0]["text"] == "Retain this note"
+    assert state["general"] == ("" if mode == "delayed-empty" else "Latest unsaved general")

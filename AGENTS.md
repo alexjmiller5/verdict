@@ -66,6 +66,8 @@ decision. Nonblank item notes and element comments within an item count as answe
 alongside choices and nonblank text. General notes do not answer every item.
 Cmd+Enter saves an open note; in an answer or general-notes textarea it opens
 the Done confirmation. Plain Enter keeps inserting newlines.
+Final submission waits for all pending and in-flight saves to be acknowledged.
+A failed save keeps the review open and retains edits for retry.
 Done first asks "Send your answers to the agent?", counts what is
 left unanswered, and says whether an agent is listening: any waiter (a
 `verdict wait` heartbeat) seen in the last two minutes.
