@@ -159,13 +159,18 @@ after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
 
-Review controls sit on the right at widths of at least 64rem; the page uses the
-remaining width. Smaller views keep compact bottom controls. The disclosure arrow
+Review controls dock to the bottom-left as a compact 20rem panel at widths of
+at least 64rem; smaller views use the full bottom width. The page uses the full
+reading width and reserves the measured panel height for scrolling past it. The disclosure arrow
 collapses the controls and frees reading space, with a persistent accessible
 expand button. Collapse state is per page, without stored preferences. Resizing
 and autosave preserve the existing general-notes textarea; a failed save expands
 the controls to show retry feedback. A ResizeObserver reserves the actual mobile
-pane height so the last content can scroll clear of it. The disclosure uses a
+pane height so the last content can scroll clear of it. The stable toggle is
+`button#vd-pane-toggle[data-action="toggle-review-controls"]`; clicking it only
+expands/collapses controls. It exposes `aria-controls="vd-pane-body"`, boolean
+`aria-expanded`, and an action label of "Expand review controls" or
+"Collapse review controls". Automation must click this button, never submission. The disclosure uses a
 bundled Tabler SVG and MIT license, with no runtime external icon request.
 
 Confirmations use a compact, centered native dialog with a backdrop, keyboard

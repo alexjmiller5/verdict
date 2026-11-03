@@ -895,9 +895,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const frame=document.querySelector('iframe');
  while(!frame.contentDocument?.querySelector('.vd-bar')) await pause(50);
  const d=frame.contentDocument,w=frame.contentWindow,p=d.querySelector('.vd-bar');
- const toggle=d.querySelector('.vd-pane-toggle');
+ const toggle=d.querySelector('#vd-pane-toggle[data-action=toggle-review-controls]');
  const bounds=()=>{const r=p.getBoundingClientRect(),c=d.querySelector('#reading').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,contentWidth:c.width,contentRight:c.right,scrollWidth:d.documentElement.scrollWidth}};
- const result={viewport:[w.innerWidth,w.innerHeight],expanded:bounds(),toggle:!!toggle};
+ const result={viewport:[w.innerWidth,w.innerHeight],expanded:bounds(),toggle:!!toggle,label:toggle?.getAttribute('aria-label'),controls:toggle?.getAttribute('aria-controls')};
  if(!toggle){document.body.dataset.result=JSON.stringify(result);return;}
  const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
  toggle.click();
@@ -905,6 +905,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  result.ariaCollapsed=toggle.getAttribute('aria-expanded');
  await pause(900);toggle.click();
  result.expandedAgain=toggle.getAttribute('aria-expanded');
+ result.expandedLabel=toggle.getAttribute('aria-label');
+ result.buttons=[...p.querySelectorAll('button')].map(b=>b.textContent.trim());
+ result.title=p.querySelector('.vd-title').textContent;
  result.sameBox=note===d.querySelector('.vd-general');result.value=note.value;
  document.body.dataset.result=JSON.stringify(result);
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
@@ -912,10 +915,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 
 
 @pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
-@pytest.mark.parametrize("width,height", [(1280, 800), (375, 812)])
-def test_review_controls_collapse_and_leave_full_reading_space(server, tmp_path, width, height):
+@pytest.mark.parametrize("width,height", [(1280, 800), (375, 812), (320, 568), (640, 320)])
+@pytest.mark.parametrize("report", [False, True])
+def test_review_controls_collapse_and_leave_full_reading_space(
+    server, tmp_path, width, height, report
+):
     base, _ = server
-    child = publish(base, files={"index.html": PANE_CONTENT})
+    content = PANE_CONTENT.replace(b'data-input="Answer"', b"") if report else PANE_CONTENT
+    child = publish(base, files={"index.html": content})
     source = (
         PANE_DRIVER.replace(b"CHILD", child["url"].encode())
         .replace(b"WIDTH", str(width).encode())
@@ -924,6 +931,12 @@ def test_review_controls_collapse_and_leave_full_reading_space(server, tmp_path,
     driver = publish(base, files={"index.html": source})
     result = browser_result(driver["url"], tmp_path, 5000)
     assert result["toggle"], result
+    assert result["label"] == "Collapse review controls"
+    assert result["controls"] == "vd-pane-body"
+    assert result["expandedLabel"] == "Collapse review controls"
+    assert ("Got it" if report else "Done") in result["buttons"]
+    assert "comment mode" in result["buttons"]
+    assert result["title"] == "T"
     assert (
         result["hidden"]
         and result["ariaCollapsed"] == "false"
@@ -932,14 +945,17 @@ def test_review_controls_collapse_and_leave_full_reading_space(server, tmp_path,
     assert result["sameBox"] and result["value"] == "Retain collapse note"
     expanded, collapsed = result["expanded"], result["collapsed"]
     assert expanded["scrollWidth"] <= width and collapsed["scrollWidth"] <= width
+    for bounds in [expanded, collapsed]:
+        assert abs(bounds["x"]) < 2 and abs(bounds["bottom"] - height) < 2
+        assert bounds["height"] <= height * 0.7 + 2
+    assert expanded["contentWidth"] >= width - 48
+    assert abs(collapsed["contentWidth"] - expanded["contentWidth"]) < 2
     if width >= 1024:
-        assert abs(expanded["right"] - width) < 2 and expanded["height"] >= height - 2
         assert 280 <= expanded["width"] <= 384
-        assert expanded["contentRight"] < expanded["x"]
-        assert collapsed["contentWidth"] > expanded["contentWidth"] + 200
+        assert collapsed["width"] == 56
     else:
-        assert abs(expanded["bottom"] - height) < 2 and expanded["width"] == width
-        assert collapsed["height"] < expanded["height"] - 40
+        assert expanded["width"] == width
+    assert collapsed["height"] < expanded["height"] - 40
     state = httpx.get(f"{base}/api/reviews/{child['id']}").json()
     assert state["general"] == "Retain collapse note"
 

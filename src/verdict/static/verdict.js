@@ -368,7 +368,7 @@
       });
       paneBody = el("div", { class: "vd-pane-body", id: "vd-pane-body" }, general);
       paneToggle = el("button", {
-        type: "button", class: "vd-pane-toggle", "aria-expanded": "true", "aria-controls": "vd-pane-body",
+        type: "button", id: "vd-pane-toggle", "data-action": "toggle-review-controls", class: "vd-pane-toggle", "aria-expanded": "true", "aria-controls": "vd-pane-body",
         "aria-label": "Collapse review controls", onclick: () => collapsePane(!paneCollapsed),
       }, el("span", { class: "vd-pane-arrow", "aria-hidden": "true" }));
       statusEl = el("span", { class: "vd-status" });
