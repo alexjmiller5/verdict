@@ -364,7 +364,7 @@
         class: "vd-text vd-general",
         placeholder: "general notes for the agent",
         "aria-label": "General notes for the agent",
-        oninput: (e) => queueSave({ general: e.target.value }),
+        oninput: (e) => { state.general = e.target.value; queueSave({ general: state.general }); },
       });
       paneBody = el("div", { class: "vd-pane-body", id: "vd-pane-body" }, general);
       paneToggle = el("button", {

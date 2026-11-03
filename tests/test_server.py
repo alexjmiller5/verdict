@@ -697,14 +697,16 @@ const read = async () => (await realFetch(location.pathname.replace('/r/', '/api
  button('Send').click();
  await pause(100);
  const before = await read();
- const retained = box.value;
+ const retained = document.querySelector('.vd-slot textarea').value;
+ const retainedComment = document.querySelector('.vd-pin')?.title;
+ const retainedGeneral = general.value;
  if (mode.startsWith('delayed')) release();
  else {
    fail = false;
    if (button('Done')) { button('Done').click(); button('Send').click(); }
  }
  await pause(1200);
- document.body.dataset.result = JSON.stringify({before, retained, atDone, activeAtDone, after:await read()});
+ document.body.dataset.result = JSON.stringify({before, retained, retainedComment, retainedGeneral, atDone, activeAtDone, after:await read()});
 })();
 </script></body></html>"""
 
@@ -720,6 +722,10 @@ def test_done_waits_for_acknowledged_saves_and_retains_failed_text_and_notes(
     assert result["activeAtDone"] == 0
     assert result["before"]["status"] == "open"
     assert result["retained"] == "Retain this answer"
+    assert result["retainedComment"] == "Retain this note"
+    assert result["retainedGeneral"] == (
+        "" if mode == "delayed-empty" else "Latest unsaved general"
+    )
     assert result["atDone"]["general"] == (
         "" if mode == "delayed-empty" else "Latest unsaved general"
     )
