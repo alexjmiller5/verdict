@@ -53,13 +53,14 @@
     const emptyFeed = () => { feed.querySelector(".vd-feed-empty").hidden = !!feed.querySelector(".vd-feed-post"); };
     index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
       const showFeed = button.dataset.view === "feed";
-      if (showFeed && !feedReady) {
+      if (showFeed) {
         feedReady = true;
         list.querySelectorAll('[data-status="open"]').forEach((row) => {
+          if (feed.querySelector(`[data-review="${row.dataset.review}"]`)) return;
           const link = row.querySelector("a");
           const post = el("article", { class: "vd-feed-post", "data-review": row.dataset.review });
           const frame = el("iframe", { class: "vd-feed-frame", src: link.getAttribute("href"), title: link.textContent });
-          const title = el("a", { href: link.getAttribute("href") }, link.textContent);
+          const title = el("a", { href: link.getAttribute("href"), target: "_blank", rel: "noopener" }, link.textContent);
           post.append(el("h2", {}, title), frame);
           frame.addEventListener("load", () => {
             const body = frame.contentDocument?.body;
@@ -71,11 +72,15 @@
             frame.addEventListener("load", () => observer.disconnect(), { once: true });
             resize();
           });
-          frame.addEventListener("verdict:completed", () => {
+          frame.addEventListener("verdict:completed", (event) => {
             post.remove();
-            row.dataset.status = "done";
+            row.dataset.status = event.detail.status;
             row.classList.add("vd-finished");
-            row.querySelector("small").textContent = "done";
+            row.querySelector("small").textContent = event.detail.status;
+            const button = row.querySelector("button");
+            button.dataset.action = event.detail.status === "closed" ? "reopen" : "close";
+            button.textContent = event.detail.status === "closed" ? "Reopen" : "Close";
+            button.setAttribute("aria-label", `${button.textContent} review`);
             emptyFeed();
             (feed.querySelector(".vd-feed-post h2 a") || index.querySelector('[data-view="feed"]')).focus();
           });
@@ -101,9 +106,22 @@
             button.disabled = true;
             row.querySelector(".vd-index-error")?.remove();
             try {
-              const r = await fetch(`/api/reviews/${row.dataset.review}/${action}`, { method: "POST" });
-              if (!r.ok) throw new Error(`request failed: ${r.status}`);
-              location.reload();
+              const post = feed.querySelector(`[data-review="${row.dataset.review}"]`);
+              const frame = post?.querySelector("iframe");
+              if (frame && action === "close") await frame.verdictClose();
+              else {
+                const r = await fetch(`/api/reviews/${row.dataset.review}/${action}`, { method: "POST" });
+                if (!r.ok) throw new Error(`request failed: ${r.status}`);
+              }
+              if (!feedReady) return location.reload();
+              row.dataset.status = action === "close" ? "closed" : "open";
+              row.classList.toggle("vd-finished", action === "close");
+              row.querySelector("small").textContent = row.dataset.status;
+              button.dataset.action = action === "close" ? "reopen" : "close";
+              button.textContent = action === "close" ? "Reopen" : "Close";
+              button.setAttribute("aria-label", `${button.textContent} review`);
+              button.disabled = false;
+              post?.remove(); emptyFeed();
             } catch {
               button.disabled = false;
               row.append(el("div", { class: "vd-index-error", role: "alert" }, `Could not ${action} this review. Try again.`));
@@ -388,7 +406,7 @@
       if (state.status === "open" && feedback) status(feedback);
     }
     if (sent) collapsePane(false);
-    if (sent && feedFrame) feedFrame.dispatchEvent(new Event("verdict:completed"));
+    if (sent && feedFrame) feedFrame.dispatchEvent(new CustomEvent("verdict:completed", { detail: { status: state.status } }));
     // Only a locally acknowledged submission may close its own top-level tab.
     if (sent && window.top === window.self) {
       try { window.close(); } catch {}
@@ -460,6 +478,9 @@
     renderPins();
     renderBar();
     document.body.classList.toggle("vd-done", state.status !== "open");
+    if (feedFrame && state.status !== "open" && !finishing && !saving && !Object.keys(pending).length) {
+      feedFrame.dispatchEvent(new CustomEvent("verdict:completed", { detail: { status: state.status } }));
+    }
     document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-bar button, .vd-bar textarea, .vd-section-accept, .vd-pin").forEach((control) => { control.disabled = finishing; });
   };
 
@@ -471,6 +492,16 @@
     }
     state = await r.json();
     loadedRevision = state.revision;
+    if (feedFrame) feedFrame.verdictClose = async () => {
+      if (finishing) throw new Error("submission in progress");
+      finishing = true; render();
+      try {
+        if (!await flush()) throw new Error("unsaved edits");
+        const r = await fetch(`${api}/close`, { method: "POST" });
+        if (!r.ok) throw new Error(`close failed: ${r.status}`);
+        state = await r.json();
+      } finally { finishing = false; render(); }
+    };
     document.addEventListener("click", onPageClick, true);
     // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
     document.addEventListener("keydown", (e) => {
@@ -494,7 +525,7 @@
       try {
         const s = await (await fetch(`${api}?wait=${feedFrame ? 0 : 30}&version=${state.version}`, { signal: polling.signal })).json();
         if (replaced(s)) { await flush(); return location.reload(); }
-        if (s.version !== state.version && !Object.keys(pending).length) { state = s; render(); }
+        if (s.version !== state.version && !saving && !Object.keys(pending).length) { state = s; render(); }
       } catch {}
       polling = null;
       setTimeout(poll, feedFrame ? 5000 : 1000);

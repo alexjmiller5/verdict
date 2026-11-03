@@ -1300,3 +1300,86 @@ def test_feed_isolates_edits_and_filters_only_acknowledged_completion(server, tm
     assert a["comments"][0]["text"] == "First comment" and b["comments"] == []
     assert a["general"] == "Retryable feed note" and b["general"] == "Second general"
     assert httpx.get(f"{base}/api/reviews/{report['id']}").json()["status"] == "done"
+
+
+FEED_NAV_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(50);
+ const d=f.contentDocument;d.querySelector('[data-view=feed]').click();
+ while(d.querySelectorAll('.vd-feed-frame').length!==2||[...d.querySelectorAll('.vd-feed-frame')].some(x=>!x.contentDocument?.querySelector('.vd-general')))await pause(50);
+ const [a,b]=d.querySelectorAll('.vd-feed-frame'),ad=a.contentDocument,bd=b.contentDocument;
+ const target=d.querySelector('.vd-feed-post h2 a').target;
+ const box=bd.querySelector('.vd-general');box.value='Other review draft';box.dispatchEvent(new Event('input'));
+ d.querySelector('[data-view=list]').click();
+ const close=which=>{d.querySelectorAll('#vd-list [data-action]')[which].click();d.querySelector('.vd-confirm .vd-primary').click()};
+ close(0);await pause(500);
+ const retained=box===b.contentDocument.querySelector('.vd-general')&&box.value==='Other review draft';
+ let fail=true;const real=b.contentWindow.fetch.bind(b.contentWindow);b.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&fail?Promise.resolve(new b.contentWindow.Response('{}',{status:503})):real(u,o);
+ box.value='Retryable close note';box.dispatchEvent(new Event('input'));close(1);await pause(100);
+ const failed=d.querySelectorAll('.vd-feed-post').length===1&&!!d.querySelector('.vd-index-error')&&box.value==='Retryable close note';
+ fail=false;close(1);await pause(500);
+ document.body.dataset.result=JSON.stringify({target,retained,failed,remaining:d.querySelectorAll('.vd-feed-post').length});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_feed_list_close_preserves_other_drafts_and_refuses_unsaved_close(server, tmp_path):
+    base, _ = server
+    first = publish(base)
+    second = publish(base)
+    driver = publish(base, files={"index.html": FEED_NAV_DRIVER.replace(b"BASE", base.encode())})
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 5000)
+    assert result.get("target") == "_blank", result
+    assert result["retained"] and result["failed"] and result["remaining"] == 0
+    assert httpx.get(f"{base}/api/reviews/{first['id']}").json()["status"] == "closed"
+    second_state = httpx.get(f"{base}/api/reviews/{second['id']}").json()
+    assert second_state["status"] == "closed" and second_state["general"] == "Retryable close note"
+
+
+FEED_REMOTE_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(50);
+ const d=f.contentDocument;d.querySelector('[data-view=feed]').click();
+ while(!d.querySelector('.vd-feed-frame')?.contentDocument?.querySelector('.vd-general'))await pause(50);
+ const frame=d.querySelector('.vd-feed-frame'),doc=frame.contentDocument;
+ let release,started;const saving=new Promise(r=>started=r);
+ if('MODE'==='dirty'){
+  const real=frame.contentWindow.fetch.bind(frame.contentWindow);
+  frame.contentWindow.fetch=(u,o)=>o?.method==='PUT'?new Promise(r=>{release=()=>r(new frame.contentWindow.Response('{}',{status:503}));started()}):real(u,o);
+  const box=doc.querySelector('.vd-general');box.value='Local unsaved draft';box.dispatchEvent(new Event('input'));doc.querySelector('.vd-bar .vd-primary').click();doc.querySelector('.vd-confirm .vd-primary').click();d.querySelector('.vd-feed-post h2 a').focus();await saving;
+ }
+ await original('BASE/api/reviews/RID/'+('MODE'==='closed'?'close':'state'),{method:'MODE'==='closed'?'POST':'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'done'})});
+ await pause(5200);
+ if(release)release();await pause(50);
+ document.body.dataset.result=JSON.stringify({posts:d.querySelectorAll('.vd-feed-post').length,rowStatus:d.querySelector('#vd-list [data-review]').dataset.status,value:doc.querySelector('.vd-general').value});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("mode", ["clean", "closed", "dirty"])
+def test_feed_remote_completion_filters_saved_posts_but_keeps_inflight_edits(
+    server, tmp_path, mode
+):
+    base, _ = server
+    review = publish(base)
+    page = (
+        FEED_REMOTE_DRIVER.replace(b"BASE", base.encode())
+        .replace(b"RID", review["id"].encode())
+        .replace(b"MODE", mode.encode())
+    )
+    driver = publish(base, files={"index.html": page})
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 8000)
+    assert result.get("posts") == (1 if mode == "dirty" else 0), result
+    assert result["rowStatus"] == (
+        "open" if mode == "dirty" else "closed" if mode == "closed" else "done"
+    )
+    if mode == "dirty":
+        assert result["value"] == "Local unsaved draft"

@@ -192,10 +192,17 @@ behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subjec
 to the browser; a web page cannot promise to disable Safari's zoom policy.
 
 The main page offers List and Feed views. Feed contains only open reviews, each
-with a title link to its standalone page and its own same-origin iframe. This
+with a title link opening its standalone page in a separate tab and its own
+same-origin iframe. This
 keeps author styles, relative assets, selectors, comments and save state isolated.
 Frames remain mounted when switching views; returning to Feed restores the last
 focused field. Controls flow within each post instead of overlaying other posts.
 A post disappears only after acknowledged completion; pending/rejected saves keep
 it editable. Feed frames use short periodic state reads instead of holding many
 HTTP/1.1 long-poll connections. Standalone reviews retain their bottom-left dock.
+
+Once Feed has mounted reviews, List Close/Reopen updates only its row and the
+associated post. Closing a mounted review first disables that review's controls
+and awaits its saves; failed saves refuse the close and keep the post. Unrelated
+mounted reviews and drafts survive index lifecycle actions. Reopened reviews get
+a fresh post on the next switch to Feed.
