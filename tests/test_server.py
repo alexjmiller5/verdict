@@ -1092,3 +1092,103 @@ def test_optional_instructions_do_not_count_as_unanswered_and_still_save(
         assert state["answers"]["extra"]["text"] == "Optional correction"
     else:
         assert "extra" not in state["answers"]
+
+
+BRAND_PAGE = rb"""<!doctype html><html><head><title>Viewport text is not a tag</title>
+<!-- <meta name="viewport" content="fake"> -->
+<meta name="icon" content="not-a-link"><link rel="viewport" href="not-a-meta">
+<script>const fake="<body>";</script></head><body data-test=">">
+<h1>Synthetic brand metadata</h1><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+document.addEventListener('DOMContentLoaded',async()=>{
+ const iconCorners=await Promise.all(['apple-touch-icon.png','icon-192.png','icon-512.png'].map(async name=>{
+  const img=new Image();img.src='/_verdict/'+name;await img.decode();
+  const canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;
+  const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);
+  return [[0,0],[img.width-1,0],[0,img.height-1],[img.width-1,img.height-1]].map(([x,y])=>[...ctx.getImageData(x,y,1,1).data]);
+ }));
+ document.body.dataset.result=JSON.stringify({iconCorners,mode:document.compatMode,
+ viewport:document.querySelector('meta[name="viewport"]')?.content,
+ icon:document.querySelector('link[rel="icon"]')?.getAttribute('href'),
+ touch:document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href'),
+ manifest:document.querySelector('link[rel="manifest"]')?.getAttribute('href'),
+ appTitle:document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content,
+ navInBody:document.querySelector('nav.vd-home')?.parentNode===document.body});});
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_review_brand_metadata_keeps_standards_mode_and_ignores_fake_tags(server, tmp_path):
+    base, _ = server
+    review = publish(base, files={"index.html": BRAND_PAGE})
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result["mode"] == "CSS1Compat" and result["navInBody"]
+    assert "device-width" in result["viewport"]
+    assert result["icon"] == "/_verdict/favicon.svg"
+    assert result["touch"] == "/_verdict/apple-touch-icon.png"
+    assert result["manifest"] == "/_verdict/manifest.webmanifest"
+    assert result["appTitle"] == "Verdict"
+    for corners in result["iconCorners"]:
+        assert (
+            all(c == corners[0] for c in corners)
+            and corners[0][0] < 40
+            and corners[0][2] < 100
+            and corners[0][3] == 255
+        )
+
+
+def test_brand_icons_and_home_manifest_are_local_and_portable(server):
+    base, _ = server
+    svg = httpx.get(base + "/_verdict/favicon.svg")
+    assert svg.status_code == 200 and svg.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in svg.text
+    for name, size in [("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512)]:
+        response = httpx.get(base + "/_verdict/" + name)
+        assert response.status_code == 200 and response.headers["content-type"] == "image/png"
+        assert response.content[:8] == b"\x89PNG\r\n\x1a\n"
+        assert struct.unpack(">II", response.content[16:24]) == (size, size)
+    response = httpx.get(base + "/_verdict/manifest.webmanifest")
+    assert response.status_code == 200
+    manifest = response.json()
+    assert manifest["name"] == manifest["short_name"] == "Verdict"
+    assert manifest["start_url"] == manifest["scope"] == "/"
+    assert manifest["display"] == "standalone"
+    assert {i["sizes"] for i in manifest["icons"]} == {"192x192", "512x512"}
+    assert all(i["src"].startswith("/_verdict/") for i in manifest["icons"])
+    root = httpx.get(base + "/").text
+    assert "apple-touch-icon" in root and "manifest.webmanifest" in root and "favicon.svg" in root
+
+
+def test_injected_default_metadata_preserves_explicit_author_choices(server):
+    base, _ = server
+    source = b"""<!doctype html><html><head><meta NAME='VIEWPORT' content='width=device-width'>
+<link rel='icon' href='custom.svg'><link rel='apple-touch-icon' href='touch.png'>
+<link rel='manifest' href='custom.webmanifest'><meta name='theme-color' content='#123456'></head><body>Custom page</body></html>"""
+    review = publish(base, files={"index.html": source})
+    page = httpx.get(review["url"]).text
+    assert page.startswith("<!doctype html>")
+    assert "custom.svg" in page and "/_verdict/favicon.svg" not in page
+    assert "touch.png" in page and "/_verdict/apple-touch-icon.png" not in page
+    assert "custom.webmanifest" in page and "/_verdict/manifest.webmanifest" not in page
+    assert "content='#123456'" in page
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_mobile_review_fields_use_readable_size_and_fast_taps(server, tmp_path):
+    base, _ = server
+    child = publish(base, files={"index.html": PANE_CONTENT})
+    source = rb"""<html><body><iframe src="CHILD" style="width:375px;height:812px"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('.vd-bar'))await pause(50);
+ const d=f.contentDocument,w=f.contentWindow;
+ const box=d.querySelector('.vd-slot textarea');box.focus();
+ document.body.dataset.result=JSON.stringify({font:getComputedStyle(box).fontSize,
+ generalFont:getComputedStyle(d.querySelector('.vd-general')).fontSize,
+ touch:getComputedStyle(d.body).touchAction,viewport:d.querySelector('meta[name=viewport]')?.content});
+})();</script></body></html>""".replace(b"CHILD", child["url"].encode())
+    driver = publish(base, files={"index.html": source})
+    result = browser_result(driver["url"], tmp_path, 3000)
+    assert result["font"] == result["generalFont"] == "16px"
+    assert result["touch"] == "manipulation"
+    assert "device-width" in result["viewport"] and "initial-scale=1" in result["viewport"]

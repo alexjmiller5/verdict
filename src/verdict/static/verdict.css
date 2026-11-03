@@ -116,3 +116,7 @@ body.vd-done .vd-slot button:not(.vd-note) { opacity: .7; }
   .vd-collapsed .vd-pane-head { justify-content: center; }
   .vd-collapsed .vd-pane-arrow { transform: rotate(180deg); }
 }
+.vd-review, .vd-index { touch-action: manipulation; }
+@media (max-width: 63.999rem) {
+  .vd-text { font-size: 16px; }
+}

@@ -176,3 +176,12 @@ answer autosaves cannot reopen closed reviews. Failed actions show an inline
 error and keep the original state available for retry.
 
 The front page lists every retained review. Each review has a durable sequential number, assigned on first creation and preserved across restart and reopening. Finished reviews remain linked at the bottom in muted text. Every review includes an All reviews link to the front page. The CLI publish output and list include the review number.
+
+Review pages and the index supply a local Verdict favicon, Apple touch icon and
+home-screen manifest. The SVG master depicts a reviewed page and approval mark;
+180/192/512 PNGs use an opaque background and a mask-safe inset. Existing explicit
+author metadata wins. Header injection parses actual tags, preserves a leading
+doctype and ignores tag-like strings in scripts/comments.
+Mobile text fields use 16px text and the review/index use fast-tap manipulation
+behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subject
+to the browser; a web page cannot promise to disable Safari's zoom policy.

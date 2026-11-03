@@ -22,6 +22,7 @@ import html
 import json
 import mimetypes
 import sys
+from html.parser import HTMLParser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -41,20 +42,74 @@ INJECT = (
 )
 
 
+HEAD_DEFAULTS = {
+    "viewport": '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    "icon": '<link rel="icon" type="image/svg+xml" href="/_verdict/favicon.svg">',
+    "apple-touch-icon": '<link rel="apple-touch-icon" sizes="180x180" href="/_verdict/apple-touch-icon.png">',
+    "manifest": '<link rel="manifest" href="/_verdict/manifest.webmanifest">',
+    "theme-color": '<meta name="theme-color" content="#10213d">',
+    "apple-mobile-web-app-capable": '<meta name="apple-mobile-web-app-capable" content="yes">',
+    "apple-mobile-web-app-title": '<meta name="apple-mobile-web-app-title" content="Verdict">',
+}
+
+
+class PageMetadata(HTMLParser):
+    """Locate actual tags without treating script strings or comments as markup."""
+
+    def __init__(self, text: str):
+        super().__init__()
+        self.seen = set()
+        self.head_end = self.head_after = self.body_start = self.body_end = None
+        self.text = text
+        self.doctype_end = 0
+        self.lines = text.splitlines(keepends=True)
+        self.feed(text)
+
+    def position(self):
+        line, column = self.getpos()
+        return sum(len(part) for part in self.lines[: line - 1]) + column
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "meta":
+            name = (attrs.get("name") or "").lower()
+            if name in {
+                "viewport",
+                "theme-color",
+                "apple-mobile-web-app-capable",
+                "apple-mobile-web-app-title",
+            }:
+                self.seen.add(name)
+        elif tag == "link":
+            rel = (attrs.get("rel") or "").lower().split()
+            self.seen.update(set(rel) & {"icon", "apple-touch-icon", "manifest"})
+            if "apple-touch-icon-precomposed" in rel:
+                self.seen.add("apple-touch-icon")
+        elif tag == "body" and self.body_start is None:
+            self.body_start = self.position()
+            self.body_end = self.body_start + len(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        if tag == "head" and self.head_end is None:
+            self.head_end = self.position()
+            self.head_after = self.text.find(">", self.head_end) + 1
+
+    def handle_decl(self, decl):
+        if decl.lower().startswith("doctype"):
+            self.doctype_end = self.position() + len(decl) + 3
+
+
 def inject(page: bytes) -> bytes:
     text = page.decode("utf-8", errors="replace")
-    lower = text.lower()
-    if (at := lower.find("</head>")) != -1 or (at := lower.find("<body")) != -1:
-        text = text[:at] + INJECT + text[at:]
-    else:
-        text = INJECT + text
-    if "viewport" not in lower:
-        text = '<meta name="viewport" content="width=device-width, initial-scale=1">' + text
+    metadata = PageMetadata(text)
+    header = (
+        "".join(value for key, value in HEAD_DEFAULTS.items() if key not in metadata.seen) + INJECT
+    )
+    positions = [p for p in [metadata.head_end, metadata.body_start] if p is not None]
+    head_at = min(positions) if positions else metadata.doctype_end
+    body_at = metadata.body_end if metadata.body_end is not None else metadata.head_after or head_at
     navigation = '<nav class="vd-home"><a href="/">All reviews</a></nav>'
-    body = text.lower().find("<body")
-    at = text.find(">", body) + 1 if body != -1 else 0
-    text = text[:at] + navigation + text[at:]
-    return text.encode()
+    return (text[:head_at] + header + text[head_at:body_at] + navigation + text[body_at:]).encode()
 
 
 def decode_files(data: dict) -> dict[str, bytes]:
@@ -72,10 +127,10 @@ def index_page(reviews: list[dict]) -> bytes:
         for r in sorted(reviews, key=lambda r: (r["status"] != "open", r["created"], r["number"]))
     )
     return (
-        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
-        "<title>Verdict</title><link rel=stylesheet href=/_verdict/verdict.css>"
-        "<script defer src=/_verdict/verdict.js></script>"
-        f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>No reviews yet.</li>'}</ul></main>"
+        "<!doctype html><meta charset=utf-8><title>Verdict</title>"
+        + "".join(HEAD_DEFAULTS.values())
+        + INJECT
+        + f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>No reviews yet.</li>'}</ul></main>"
     ).encode()
 
 
@@ -134,13 +189,26 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
             self.error(404, "not found")
 
         def asset(self, name: str) -> None:
-            if name not in ("verdict.js", "verdict.css", "chevron-right.svg"):
+            if name not in (
+                "verdict.js",
+                "verdict.css",
+                "chevron-right.svg",
+                "favicon.svg",
+                "apple-touch-icon.png",
+                "icon-192.png",
+                "icon-512.png",
+                "manifest.webmanifest",
+            ):
                 return self.error(404, "not found")
             content = resources.files("verdict").joinpath("static", name).read_bytes()
-            mime = {".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml"}[
-                "." + name.rsplit(".", 1)[1]
-            ]
-            self.send(200, content, f"{mime}; charset=utf-8")
+            mime = {
+                ".js": "text/javascript",
+                ".css": "text/css",
+                ".svg": "image/svg+xml",
+                ".png": "image/png",
+                ".webmanifest": "application/manifest+json",
+            }["." + name.rsplit(".", 1)[1]]
+            self.send(200, content, mime if name.endswith(".png") else f"{mime}; charset=utf-8")
 
         def page(self, rid: str, name: str) -> None:
             if name == "":
