@@ -901,7 +901,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  if(!toggle){document.body.dataset.result=JSON.stringify(result);return;}
  const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
  toggle.click();
- result.collapsed= bounds(); result.hidden=getComputedStyle(d.querySelector('.vd-pane-body')).display==='none';
+ result.collapsed= bounds(); result.compactActions=[...p.querySelectorAll('.vd-pane-body button')].filter(b=>['comment mode','Done','Got it'].includes(b.textContent)).every(b=>b.getBoundingClientRect().height>0); result.hidden=getComputedStyle(d.querySelector('.vd-general')).display==='none';
  result.ariaCollapsed=toggle.getAttribute('aria-expanded');
  await pause(900);toggle.click();
  result.expandedAgain=toggle.getAttribute('aria-expanded');
@@ -942,6 +942,7 @@ def test_review_controls_collapse_and_leave_full_reading_space(
         and result["ariaCollapsed"] == "false"
         and result["expandedAgain"] == "true"
     )
+    assert result["compactActions"]
     assert result["sameBox"] and result["value"] == "Retain collapse note"
     expanded, collapsed = result["expanded"], result["collapsed"]
     assert expanded["scrollWidth"] <= width and collapsed["scrollWidth"] <= width
@@ -952,7 +953,7 @@ def test_review_controls_collapse_and_leave_full_reading_space(
     assert abs(collapsed["contentWidth"] - expanded["contentWidth"]) < 2
     if width >= 1024:
         assert 280 <= expanded["width"] <= 384
-        assert collapsed["width"] == 56
+        assert collapsed["width"] == expanded["width"]
     else:
         assert expanded["width"] == width
     assert collapsed["height"] < expanded["height"] - 40
@@ -1214,3 +1215,88 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
     assert result["font"] == result["generalFont"] == "16px"
     assert result["touch"] == "manipulation"
     assert "device-width" in result["viewport"] and "initial-scale=1" in result["viewport"]
+
+
+def test_index_offers_list_and_open_review_feed(server):
+    base, store = server
+    first = publish(base, title="Feed <first>")
+    done = publish(base, title="Finished")
+    store.update(done["id"], {"status": "done"})
+    page = httpx.get(base + "/").text
+    assert 'data-view="list"' in page and 'data-view="feed"' in page
+    assert 'id="vd-feed"' in page
+    assert f"/r/{first['id']}/" in page
+    assert "Feed &lt;first&gt;" in page
+
+
+FEED_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const outer=document.querySelector('iframe');
+ while(!outer.contentDocument?.querySelector('[data-view=feed]')) await pause(50);
+ const d=outer.contentDocument;
+ d.querySelector('[data-view=feed]').click();
+ const frames=()=>[...d.querySelectorAll('.vd-feed-frame')];
+ while(frames().length!==3||frames().some(f=>!f.contentDocument?.querySelector('.vd-general')))await pause(50);
+ const [a,b,c]=frames(),ad=a.contentDocument,bd=b.contentDocument,cd=c.contentDocument;
+ const input=(doc,selector,text)=>{let e=doc.querySelector(selector);e.focus();e.value=text;e.dispatchEvent(new Event('input'));return e};
+ const sameBox=input(ad,'.vd-slot textarea','First answer');input(bd,'.vd-slot textarea','Second answer');
+ ad.querySelector('.vd-note').click();ad.querySelector('.vd-sheet textarea').value='First comment';[...ad.querySelectorAll('.vd-sheet button')].find(x=>x.textContent==='Add note').click();
+ input(ad,'.vd-general','First general');input(bd,'.vd-general','Second general');
+ await pause(1000);
+ const title=d.querySelector('.vd-feed-post h2 a').getAttribute('href');
+ d.querySelector('[data-view=list]').focus();d.querySelector('[data-view=list]').click();d.querySelector('[data-view=feed]').focus();d.querySelector('[data-view=feed]').click();
+ const retained=sameBox===ad.querySelector('.vd-slot textarea')&&sameBox.value==='First answer';const restoredFocus=d.activeElement===b&&bd.activeElement===bd.querySelector('.vd-general');
+ let fail=true,failDone='MODE'==='done',release,started;const startedSave=new Promise(r=>started=r),real=a.contentWindow.fetch.bind(a.contentWindow);
+ a.contentWindow.fetch=(url,opts)=>{if(opts?.method==='PUT'&&JSON.parse(opts.body).status==='done'&&failDone){failDone=false;return Promise.resolve(new a.contentWindow.Response('{}',{status:503}));}if(String(url).endsWith('/state')&&opts?.method==='PUT'&&!JSON.parse(opts.body).status){started();return new Promise(resolve=>release=()=>resolve(fail?new a.contentWindow.Response('{}',{status:503}):real(url,opts)));}return real(url,opts)};
+ input(ad,'.vd-general','Retryable feed note');await startedSave;
+ ad.querySelector('#vd-pane-toggle').click();
+ const notesHidden=getComputedStyle(ad.querySelector('.vd-general')).display==='none';const actions=[...ad.querySelectorAll('.vd-pane-body button')].filter(x=>['comment mode','accept all recommendations','Done'].includes(x.textContent));const actionsVisible=actions.length===3&&actions.every(x=>x.getBoundingClientRect().height>0);actions.find(x=>x.textContent==='comment mode').click();const commentScoped=ad.body.classList.contains('vd-comment-mode')&&!bd.body.classList.contains('vd-comment-mode');actions.find(x=>x.textContent==='comment mode').click();actions.find(x=>x.textContent==='accept all recommendations').click();
+ const send=()=>{ad.querySelector('.vd-bar .vd-primary').click();ad.querySelector('.vd-confirm .vd-primary').click()};
+ send();await pause(50);const pendingPresent=d.querySelectorAll('.vd-feed-post').length===3;release();await pause(100);
+ const failedPresent=d.querySelectorAll('.vd-feed-post').length===3&&ad.querySelector('.vd-general').value==='Retryable feed note'&&!ad.querySelector('.vd-general').disabled;
+ cd.querySelector('#vd-pane-toggle').click();cd.querySelector('.vd-primary').click();await pause(200);
+ const reportRemoved=d.querySelectorAll('.vd-feed-post').length===2;
+ fail=false;send();release();await pause(150);const rejectedDoneRetained='MODE'!=='done'||d.querySelectorAll('.vd-feed-post').length===2;if('MODE'==='done')send();await pause(500);
+ document.body.dataset.result=JSON.stringify({title,retained,actionsVisible,notesHidden,commentScoped,rejectedDoneRetained,pendingPresent,failedPresent,reportRemoved,remaining:d.querySelectorAll('.vd-feed-post').length,second:bd.querySelector('.vd-slot textarea').value,asset:ad.querySelector('img').src,focused:restoredFocus});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("mode", ["save", "done"])
+def test_feed_isolates_edits_and_filters_only_acknowledged_completion(server, tmp_path, mode):
+    base, _ = server
+    content = b'<html><body><p data-item="q" data-input="Answer" data-choices="Yes|No">Question</p><img src="asset.svg"></body></html>'
+    first = publish(base, title="First", files={"index.html": content, "asset.svg": b"<svg/>"})
+    second = publish(base, title="Second", files={"index.html": content, "asset.svg": b"<svg/>"})
+    report = publish(base, title="Report", files={"index.html": b"<h1>Report</h1>"})
+    driver = publish(
+        base,
+        files={
+            "index.html": FEED_DRIVER.replace(b"BASE", base.encode()).replace(
+                b"MODE", mode.encode()
+            )
+        },
+    )
+    # Keep the driver itself out of the feed.
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 7000)
+    assert result.get("retained") and result.get("actionsVisible"), result
+    assert result["notesHidden"]
+    assert result["commentScoped"] and result["rejectedDoneRetained"] and result["focused"]
+    assert result["pendingPresent"] and result["failedPresent"] and result["reportRemoved"]
+    assert result["remaining"] == 1 and result["second"] == "Second answer"
+    assert result["title"] == f"/r/{first['id']}/"
+    assert result["asset"] == first["url"] + "asset.svg"
+    a = httpx.get(f"{base}/api/reviews/{first['id']}").json()
+    b = httpx.get(f"{base}/api/reviews/{second['id']}").json()
+    assert a["status"] == "done" and b["status"] == "open"
+    assert a["answers"]["q"]["text"] == "First answer"
+    assert b["answers"]["q"]["text"] == "Second answer"
+    assert a["answers"]["q"]["choice"] == "Yes"
+    assert not b["answers"]["q"].get("choice")
+    assert a["comments"][0]["text"] == "First comment" and b["comments"] == []
+    assert a["general"] == "Retryable feed note" and b["general"] == "Second general"
+    assert httpx.get(f"{base}/api/reviews/{report['id']}").json()["status"] == "done"

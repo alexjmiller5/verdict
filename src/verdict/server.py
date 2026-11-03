@@ -130,7 +130,11 @@ def index_page(reviews: list[dict]) -> bytes:
         "<!doctype html><meta charset=utf-8><title>Verdict</title>"
         + "".join(HEAD_DEFAULTS.values())
         + INJECT
-        + f"<main class=vd-index><h1>Reviews</h1><ul>{rows or '<li>No reviews yet.</li>'}</ul></main>"
+        + '<main class=vd-index><h1>Reviews</h1><div class="vd-view-switch" role="group" aria-label="Review view">'
+        + '<button type="button" data-view="list" aria-pressed="true" aria-controls="vd-list">List</button>'
+        + '<button type="button" data-view="feed" aria-pressed="false" aria-controls="vd-feed">Feed</button></div>'
+        + f'<ul id="vd-list">{rows or "<li>No reviews yet.</li>"}</ul>'
+        + '<section id="vd-feed" aria-label="Open reviews" hidden><p class="vd-feed-empty">No open reviews.</p></section></main>'
     ).encode()
 
 

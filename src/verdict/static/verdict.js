@@ -12,6 +12,8 @@
 (() => {
   const id = location.pathname.split("/")[2];
   const api = `/api/reviews/${id}`;
+  const feedFrame = window.frameElement?.classList.contains("vd-feed-frame") ? window.frameElement : null;
+  if (feedFrame) document.body.classList.add("vd-feed-embedded");
   let state = null;
   let saveTimer = null;
   let commentMode = false;
@@ -45,6 +47,47 @@
   };
 
   const bootIndex = () => {
+    const index = document.querySelector(".vd-index");
+    const list = document.querySelector("#vd-list"), feed = document.querySelector("#vd-feed");
+    let feedReady = false, feedFocus = null;
+    const emptyFeed = () => { feed.querySelector(".vd-feed-empty").hidden = !!feed.querySelector(".vd-feed-post"); };
+    index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
+      const showFeed = button.dataset.view === "feed";
+      if (showFeed && !feedReady) {
+        feedReady = true;
+        list.querySelectorAll('[data-status="open"]').forEach((row) => {
+          const link = row.querySelector("a");
+          const post = el("article", { class: "vd-feed-post", "data-review": row.dataset.review });
+          const frame = el("iframe", { class: "vd-feed-frame", src: link.getAttribute("href"), title: link.textContent });
+          const title = el("a", { href: link.getAttribute("href") }, link.textContent);
+          post.append(el("h2", {}, title), frame);
+          frame.addEventListener("load", () => {
+            const body = frame.contentDocument?.body;
+            if (!body) return;
+            frame.contentDocument.addEventListener("focusin", (e) => { feedFocus = e.target; });
+            const resize = () => { frame.style.height = `${Math.ceil(body.getBoundingClientRect().height)}px`; };
+            const observer = new ResizeObserver(resize);
+            observer.observe(body);
+            frame.addEventListener("load", () => observer.disconnect(), { once: true });
+            resize();
+          });
+          frame.addEventListener("verdict:completed", () => {
+            post.remove();
+            row.dataset.status = "done";
+            row.classList.add("vd-finished");
+            row.querySelector("small").textContent = "done";
+            emptyFeed();
+            (feed.querySelector(".vd-feed-post h2 a") || index.querySelector('[data-view="feed"]')).focus();
+          });
+          feed.append(post);
+        });
+      }
+      list.hidden = showFeed; feed.hidden = !showFeed;
+      index.classList.toggle("vd-feed-view", showFeed);
+      index.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+      emptyFeed();
+      if (showFeed && feedFocus?.isConnected) feedFocus.focus();
+    }));
     document.querySelectorAll(".vd-index [data-action]").forEach((button) => {
       button.addEventListener("click", () => {
         const row = button.closest("[data-review]");
@@ -308,7 +351,7 @@
   let paneCollapsed = false;
   const collapsePane = (collapsed) => {
     paneCollapsed = collapsed;
-    paneBody.hidden = collapsed;
+    general.hidden = collapsed;
     bar.classList.toggle("vd-collapsed", collapsed);
     document.body.classList.toggle("vd-pane-collapsed", collapsed);
     paneToggle.setAttribute("aria-expanded", String(!collapsed));
@@ -345,6 +388,7 @@
       if (state.status === "open" && feedback) status(feedback);
     }
     if (sent) collapsePane(false);
+    if (sent && feedFrame) feedFrame.dispatchEvent(new Event("verdict:completed"));
     // Only a locally acknowledged submission may close its own top-level tab.
     if (sent && window.top === window.self) {
       try { window.close(); } catch {}
@@ -448,12 +492,12 @@
       if (document.hidden || polling) return;
       polling = new AbortController();
       try {
-        const s = await (await fetch(`${api}?wait=30&version=${state.version}`, { signal: polling.signal })).json();
+        const s = await (await fetch(`${api}?wait=${feedFrame ? 0 : 30}&version=${state.version}`, { signal: polling.signal })).json();
         if (replaced(s)) { await flush(); return location.reload(); }
         if (s.version !== state.version && !Object.keys(pending).length) { state = s; render(); }
       } catch {}
       polling = null;
-      setTimeout(poll, 1000);
+      setTimeout(poll, feedFrame ? 5000 : 1000);
     };
     document.addEventListener("visibilitychange", () => (document.hidden ? polling?.abort() : poll()));
     poll();

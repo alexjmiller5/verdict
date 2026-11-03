@@ -162,8 +162,8 @@ Re-renders after an autosave must never detach the text box being typed in
 Review controls dock to the bottom-left as a compact 20rem panel at widths of
 at least 64rem; smaller views use the full bottom width. The page uses the full
 reading width and reserves the measured panel height for scrolling past it. The disclosure arrow
-collapses the controls and frees reading space, with a persistent accessible
-expand button. Collapse state is per page, without stored preferences. Resizing
+hides the notes area while keeping Comment mode, available recommendation actions
+and Done/Got it visible, with a persistent accessible expand button. Collapse state is per page, without stored preferences. Resizing
 and autosave preserve the existing general-notes textarea; a failed save expands
 the controls to show retry feedback. A ResizeObserver reserves the actual mobile
 pane height so the last content can scroll clear of it. The stable toggle is
@@ -190,3 +190,12 @@ doctype and ignores tag-like strings in scripts/comments.
 Mobile text fields use 16px text and the review/index use fast-tap manipulation
 behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subject
 to the browser; a web page cannot promise to disable Safari's zoom policy.
+
+The main page offers List and Feed views. Feed contains only open reviews, each
+with a title link to its standalone page and its own same-origin iframe. This
+keeps author styles, relative assets, selectors, comments and save state isolated.
+Frames remain mounted when switching views; returning to Feed restores the last
+focused field. Controls flow within each post instead of overlaying other posts.
+A post disappears only after acknowledged completion; pending/rejected saves keep
+it editable. Feed frames use short periodic state reads instead of holding many
+HTTP/1.1 long-poll connections. Standalone reviews retain their bottom-left dock.
