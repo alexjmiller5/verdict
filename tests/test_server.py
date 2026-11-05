@@ -903,6 +903,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
  toggle.click();
  result.collapsed= bounds(); result.compactIcons=[...p.querySelectorAll('.vd-pane-body button')].map(b=>({x:b.getBoundingClientRect().x,y:b.getBoundingClientRect().y,height:b.getBoundingClientRect().height,label:b.getAttribute('aria-label'),title:b.title,font:getComputedStyle(b).fontSize,mask:getComputedStyle(b,'::before').maskImage})); result.compactActions=[...p.querySelectorAll('.vd-pane-body button')].filter(b=>['comment mode','Done','Got it'].includes(b.textContent)).every(b=>b.getBoundingClientRect().height>0); result.hidden=getComputedStyle(d.querySelector('.vd-general')).display==='none';
+ result.iconCenters=[...p.querySelectorAll('.vd-pane-body button')].map(b=>{const s=getComputedStyle(b,'::before'),r=b.getBoundingClientRect();return {position:s.position,dx:parseFloat(s.left)+parseFloat(s.marginLeft)+parseFloat(s.width)/2-(r.width-2)/2,dy:parseFloat(s.top)+parseFloat(s.marginTop)+parseFloat(s.height)/2-(r.height-2)/2}});
  result.ariaCollapsed=toggle.getAttribute('aria-expanded');
  await pause(900);toggle.click();
  result.expandedAgain=toggle.getAttribute('aria-expanded');
@@ -958,6 +959,10 @@ def test_review_controls_collapse_and_leave_full_reading_space(
         else:
             assert bounds["height"] <= height * 0.7 + 2
     assert expanded["contentWidth"] >= width - (368 if width >= 1024 else 48)
+    assert all(
+        i["position"] == "absolute" and abs(i["dx"]) < 1 and abs(i["dy"]) < 1
+        for i in result["iconCenters"]
+    )
     icons = result["compactIcons"]
     assert all(
         i["label"] and i["title"] and i["font"] == "0px" and i["mask"] != "none" for i in icons

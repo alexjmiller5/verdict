@@ -133,9 +133,9 @@ html:has(.vd-index) { overflow-y: scroll; }
 .vd-collapsed .vd-pane-head { justify-content: center; }
 .vd-collapsed .vd-pane-body { flex: 0 0 auto; align-items: center; }
 .vd-collapsed .vd-row { flex-direction: column; align-items: center; gap: .5rem; }
-.vd-collapsed .vd-row > button { display: grid; place-items: center; flex: 0 0 auto;
+.vd-collapsed .vd-row > button { position: relative; display: grid; place-items: center; flex: 0 0 auto;
   width: 2.75rem; min-height: 2.75rem; padding: 0; font-size: 0; }
-.vd-collapsed .vd-row > button::before { content: ""; display: block; width: 1.25rem; height: 1.25rem;
+.vd-collapsed .vd-row > button::before { content: ""; position: absolute; inset: 0; margin: auto; display: block; width: 1.25rem; height: 1.25rem;
   background: currentColor; mask: var(--vd-action-icon) center / contain no-repeat; }
 .vd-toggle { --vd-action-icon: url("/_verdict/action-comment.svg"); }
 .vd-accept-action { --vd-action-icon: url("/_verdict/action-accept.svg"); }
