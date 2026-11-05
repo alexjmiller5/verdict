@@ -205,6 +205,8 @@ typing; selecting another review is explicit. Jump to review navigates to an
 open post; each post collapses in place without navigation or removing its frame
 or draft. Folded feeds retain trailing viewport space to prevent bottom-of-page
 scroll clamping.
+Frame sizing ignores zero-height measurements while hidden, retaining the prior
+reading height so expanding a folded post cannot clamp the viewport.
 Frames remain mounted when switching views; returning to Feed restores the last
 focused field. A post disappears only after acknowledged completion;
 pending/rejected saves keep it editable. Feed frames use short periodic state

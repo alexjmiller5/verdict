@@ -1422,7 +1422,7 @@ const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
- const d=outer.contentDocument,w=outer.contentWindow;d.querySelector('[data-view=feed]').click();
+ const d=outer.contentDocument,w=outer.contentWindow,resizeCallbacks=new Map(),OriginalObserver=w.ResizeObserver;w.ResizeObserver=class extends OriginalObserver{constructor(callback){super(callback);this.replay=callback}observe(target){resizeCallbacks.set(target,this.replay);super.observe(target)}};d.querySelector('[data-view=feed]').click();
  for(let i=0;i<80&&(d.querySelectorAll('.vd-feed-frame').length!==2||[...d.querySelectorAll('.vd-feed-frame')].some(f=>!f.contentDocument?.querySelector('.vd-slot')));i++)await pause(30);
  if(d.querySelectorAll('.vd-feed-frame').length!==2){document.body.dataset.result=JSON.stringify({error:d.body.innerHTML});return;}
  const [a,b]=d.querySelectorAll('.vd-feed-frame'),sidebar=d.querySelector('.vd-feed-sidebar');
@@ -1438,9 +1438,9 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  select(a);await pause(100);const full=d.querySelector('.vd-index').getBoundingClientRect(),rail=sidebar.getBoundingClientRect();const oldControls=a.verdictControls;a.contentWindow.location.reload();for(let i=0;i<60&&a.verdictControls===oldControls;i++)await pause(30);const reloadedControls=sidebar.querySelectorAll('.vd-bar').length;const mobilePlacement=sidebar.previousElementSibling===a.closest('article');let mobileStable=true;if(w.innerWidth<1024){sidebar.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(100);mobileStable=title()===first;select(a);}
  const real=a.contentWindow.fetch.bind(a.contentWindow);let releaseDone;a.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&JSON.parse(o.body).status==='done'?new Promise(resolve=>releaseDone=()=>resolve(real(u,o))):real(u,o);
  sidebar.querySelector('.vd-submit-action').click();d.querySelector('.vd-confirm .vd-primary').click();for(let i=0;i<40&&!releaseDone;i++)await pause(20);select(b);other.focus();other.value='Second note during unrelated completion';other.dispatchEvent(new Event('input'));releaseDone();await pause(200);const unrelatedFocus=d.activeElement===other;
- const lastFold=b.closest('article').querySelector('.vd-post-toggle');other.blur();w.scrollTo(0,b.closest('article').offsetTop);await pause(50);lastFold.focus();const lastBefore={scroll:w.scrollY,top:lastFold.getBoundingClientRect().top};lastFold.click();await pause(100);const lastStable=b.hidden&&Math.abs(w.scrollY-lastBefore.scroll)<1&&Math.abs(lastFold.getBoundingClientRect().top-lastBefore.top)<1;lastFold.click();select(b);await pause(50);
+ const lastFold=b.closest('article').querySelector('.vd-post-toggle');other.blur();w.scrollTo(0,b.closest('article').offsetTop);await pause(50);lastFold.focus();const lastBefore={scroll:w.scrollY,top:lastFold.getBoundingClientRect().top,height:b.style.height};lastFold.click();resizeCallbacks.get(b.contentDocument.body)();await pause(100);const hiddenHeightRetained=b.style.height===lastBefore.height;const lastStable=b.hidden&&Math.abs(w.scrollY-lastBefore.scroll)<1&&Math.abs(lastFold.getBoundingClientRect().top-lastBefore.top)<1;lastFold.click();await pause(100);const lastExpandStable=!b.hidden&&Math.abs(w.scrollY-lastBefore.scroll)<1&&Math.abs(lastFold.getBoundingClientRect().top-lastBefore.top)<1;select(b);await pause(50);
 
- document.body.dataset.result=JSON.stringify({shared:true,lastStable,mobileStable,mobilePlacement,unrelatedFocus,focusedDraft,first,second,retained,folded,expandedInPlace,follows,wide,centered,followScroll,followTitle,followBounds,restored:!a.hidden,fullWidth:d.querySelector('.vd-index').classList.contains('vd-full-width'),nonOverlap:w.innerWidth<1024||full.right<=rail.left,reloadedControls,controls:sidebar.querySelectorAll('#vd-pane-toggle').length,firstValue:box.value,secondValue:other.value,scroll:w.scrollY,active:d.activeElement?.outerHTML?.slice(0,180),posts:[...d.querySelectorAll(".vd-feed-post")].map(p=>({top:p.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom}))});
+ document.body.dataset.result=JSON.stringify({shared:true,hiddenHeightRetained,lastExpandStable,lastStable,mobileStable,mobilePlacement,unrelatedFocus,focusedDraft,first,second,retained,folded,expandedInPlace,follows,wide,centered,followScroll,followTitle,followBounds,restored:!a.hidden,fullWidth:d.querySelector('.vd-index').classList.contains('vd-full-width'),nonOverlap:w.innerWidth<1024||full.right<=rail.left,reloadedControls,controls:sidebar.querySelectorAll('#vd-pane-toggle').length,firstValue:box.value,secondValue:other.value,scroll:w.scrollY,active:d.activeElement?.outerHTML?.slice(0,180),posts:[...d.querySelectorAll(".vd-feed-post")].map(p=>({top:p.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom}))});
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
 </script></body></html>"""
 
@@ -1474,9 +1474,13 @@ def test_feed_shared_sidebar_tracks_visible_review_and_preserves_drafts(server, 
         and result["restored"]
         and result["follows"]
     ), json.dumps(result)
-    assert result["focusedDraft"] and result["unrelatedFocus"] and result["lastStable"], json.dumps(
-        result
-    )
+    assert (
+        result["focusedDraft"]
+        and result["unrelatedFocus"]
+        and result["lastStable"]
+        and result["hiddenHeightRetained"]
+        and result["lastExpandStable"]
+    ), json.dumps(result)
     assert (
         result["fullWidth"]
         and result["nonOverlap"]

@@ -133,7 +133,11 @@
             if (!body) return;
             frame.contentDocument.addEventListener("focusin", (e) => { feedFocus = e.target; activate(post); });
             frame.contentDocument.addEventListener("pointerdown", () => activate(post));
-            const resize = () => { frame.style.height = `${Math.ceil(body.getBoundingClientRect().height)}px`; };
+            const resize = () => {
+              const height = Math.ceil(body.getBoundingClientRect().height);
+              // Hidden frames report zero; retain their reading height until shown again.
+              if (height > 0) frame.style.height = `${height}px`;
+            };
             const observer = new ResizeObserver(resize);
             observer.observe(body);
             frame.addEventListener("load", () => observer.disconnect(), { once: true });
