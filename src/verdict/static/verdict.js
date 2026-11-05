@@ -453,14 +453,14 @@
       general,
       [],
       [el("div", { class: "vd-row" },
-        el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: toggleCommentMode, title: "Ctrl+Option+C" }, commentMode ? "tap anything to add a note…" : "comment mode"),
-        hasChoices(document) ? el("button", { type: "button", onclick: () => acceptAll(document) }, "accept all recommendations") : "",
+        el("button", { type: "button", class: `vd-toggle${commentMode ? " vd-on" : ""}`, onclick: toggleCommentMode, "aria-label": "Comment mode", "aria-pressed": String(commentMode), title: "Comment mode (Ctrl+Option+C)" }, commentMode ? "tap anything to add a note…" : "comment mode"),
+        hasChoices(document) ? el("button", { type: "button", class: "vd-accept-action", "aria-label": "Accept all recommendations", title: "Accept all recommendations", onclick: () => acceptAll(document) }, "accept all recommendations") : "",
         closed ? "" : done
-          ? el("button", { type: "button", onclick: () => put({ status: "open" }) }, "reopen")
+          ? el("button", { type: "button", class: "vd-reopen-action", "aria-label": "Reopen", title: "Reopen review", onclick: () => put({ status: "open" }) }, "reopen")
           : questions.length
-            ? el("button", { type: "button", class: "vd-primary", onclick: confirmDone }, "Done")
-            : el("button", { type: "button", class: "vd-primary", onclick: finish }, "Got it"),
-        done ? el("button", { type: "button", class: "vd-close-tab", onclick: () => window.close() }, "Close tab") : ""
+            ? el("button", { type: "button", class: "vd-primary vd-submit-action", "aria-label": "Done", title: "Send answers", onclick: confirmDone }, "Done")
+            : el("button", { type: "button", class: "vd-primary vd-submit-action", "aria-label": "Got it", title: "Mark report read", onclick: finish }, "Got it"),
+        done ? el("button", { type: "button", class: "vd-close-tab", "aria-label": "Close tab", title: "Close tab", onclick: () => window.close() }, "Close tab") : ""
       ), ...(done ? [el("div", { class: "vd-sent-help", role: "status" }, "Sent. You can close this tab if your browser keeps it open.")] : [])]
     );
   };

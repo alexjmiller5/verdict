@@ -159,11 +159,11 @@ after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
 
-Review controls dock to the bottom-right as a compact 20rem panel at widths of
-at least 64rem. The page reserves a right-hand column so content cannot sit under
-the panel. Smaller views place controls in normal flow below the content. The disclosure arrow
-hides the notes area while keeping Comment mode, available recommendation actions
-and Done/Got it visible, with a persistent accessible expand button. Collapse state is per page, without stored preferences. Resizing
+Review controls occupy a full-height 20rem column on the right at widths of
+at least 64rem. The page reserves that column so content cannot sit under it. Smaller views place controls in normal flow below the content. The disclosure arrow
+collapses to a 3.5rem rail, frees reading space, and keeps Comment mode, available
+recommendation actions and Done/Got it as vertically stacked Tabler icon buttons.
+Each action retains an accessible label and hover title; the expand button persists. Collapse state is per page, without stored preferences. Resizing
 and autosave preserve the existing general-notes textarea; a failed save expands
 the controls to show retry feedback. Controls never overlay the page content. The stable toggle is
 `button#vd-pane-toggle[data-action="toggle-review-controls"]`; clicking it only
@@ -190,7 +190,8 @@ Mobile text fields use 16px text and the review/index use fast-tap manipulation
 behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subject
 to the browser; a web page cannot promise to disable Safari's zoom policy.
 
-The main page offers List and Feed views. Feed contains only open reviews, each
+The main page offers List and Feed views with the same horizontal bounds and a
+stable scrollbar gutter so switching does not shift the page. Feed contains only open reviews, each
 with a title link opening its standalone page in a separate tab and its own
 same-origin iframe. This
 keeps author styles, relative assets, selectors, comments and save state isolated.

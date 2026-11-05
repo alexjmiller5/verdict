@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from urllib.parse import quote
 
 import httpx
@@ -901,7 +902,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  if(!toggle){document.body.dataset.result=JSON.stringify(result);return;}
  const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
  toggle.click();
- result.collapsed= bounds(); result.compactActions=[...p.querySelectorAll('.vd-pane-body button')].filter(b=>['comment mode','Done','Got it'].includes(b.textContent)).every(b=>b.getBoundingClientRect().height>0); result.hidden=getComputedStyle(d.querySelector('.vd-general')).display==='none';
+ result.collapsed= bounds(); result.compactIcons=[...p.querySelectorAll('.vd-pane-body button')].map(b=>({x:b.getBoundingClientRect().x,y:b.getBoundingClientRect().y,height:b.getBoundingClientRect().height,label:b.getAttribute('aria-label'),title:b.title,font:getComputedStyle(b).fontSize,mask:getComputedStyle(b,'::before').maskImage})); result.compactActions=[...p.querySelectorAll('.vd-pane-body button')].filter(b=>['comment mode','Done','Got it'].includes(b.textContent)).every(b=>b.getBoundingClientRect().height>0); result.hidden=getComputedStyle(d.querySelector('.vd-general')).display==='none';
  result.ariaCollapsed=toggle.getAttribute('aria-expanded');
  await pause(900);toggle.click();
  result.expandedAgain=toggle.getAttribute('aria-expanded');
@@ -952,15 +953,26 @@ def test_review_controls_collapse_and_leave_full_reading_space(
             assert bounds["contentRight"] <= bounds["x"] - 8
         else:
             assert bounds["contentBottom"] <= bounds["y"]
-        assert bounds["height"] <= height * 0.7 + 2
+        if width >= 1024:
+            assert abs(bounds["height"] - height) < 2 and abs(bounds["y"]) < 2
+        else:
+            assert bounds["height"] <= height * 0.7 + 2
     assert expanded["contentWidth"] >= width - (368 if width >= 1024 else 48)
-    assert abs(collapsed["contentWidth"] - expanded["contentWidth"]) < 2
+    icons = result["compactIcons"]
+    assert all(
+        i["label"] and i["title"] and i["font"] == "0px" and i["mask"] != "none" for i in icons
+    )
+    assert all(abs(i["x"] - icons[0]["x"]) < 2 for i in icons)
+    assert all(b["y"] >= a["y"] + a["height"] for a, b in pairwise(icons))
     if width >= 1024:
         assert 280 <= expanded["width"] <= 384
-        assert collapsed["width"] == expanded["width"]
+        assert collapsed["width"] == 56
+        assert collapsed["contentWidth"] > expanded["contentWidth"] + 200
     else:
         assert width - 48 <= expanded["width"] <= width
-    assert collapsed["height"] < expanded["height"] - 40
+    if width < 1024:
+        assert abs(collapsed["contentWidth"] - expanded["contentWidth"]) < 2
+        assert collapsed["width"] == 56
     state = httpx.get(f"{base}/api/reviews/{child['id']}").json()
     assert state["general"] == "Retain collapse note"
 
@@ -1233,14 +1245,14 @@ def test_index_offers_list_and_open_review_feed(server):
     assert "Feed &lt;first&gt;" in page
 
 
-FEED_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:1366px;height:900px"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const outer=document.querySelector('iframe');
  while(!outer.contentDocument?.querySelector('[data-view=feed]')) await pause(50);
  const d=outer.contentDocument;
- d.querySelector('[data-view=feed]').click();
+ const scrollStyle=d.createElement('style');scrollStyle.textContent='::-webkit-scrollbar{width:16px}';d.head.append(scrollStyle);const listBounds=d.querySelector('.vd-index').getBoundingClientRect();d.querySelector('[data-view=feed]').click();const feedBounds=d.querySelector('.vd-index').getBoundingClientRect();const sameWidth=listBounds.width===feedBounds.width&&listBounds.x===feedBounds.x;
  const frames=()=>[...d.querySelectorAll('.vd-feed-frame')];
  while(frames().length!==3||frames().some(f=>!f.contentDocument?.querySelector('.vd-general')))await pause(50);
  const [a,b,c]=frames(),ad=a.contentDocument,bd=b.contentDocument,cd=c.contentDocument;
@@ -1263,7 +1275,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  cd.querySelector('#vd-pane-toggle').click();cd.querySelector('.vd-primary').click();await pause(200);
  const reportRemoved=d.querySelectorAll('.vd-feed-post').length===2;
  fail=false;send();release();await pause(150);const rejectedDoneRetained='MODE'!=='done'||d.querySelectorAll('.vd-feed-post').length===2;if('MODE'==='done')send();await pause(500);
- document.body.dataset.result=JSON.stringify({title,retained,actionsVisible,notesHidden,commentScoped,rejectedDoneRetained,pendingPresent,failedPresent,reportRemoved,remaining:d.querySelectorAll('.vd-feed-post').length,second:bd.querySelector('.vd-slot textarea').value,asset:ad.querySelector('img').src,focused:restoredFocus});
+ document.body.dataset.result=JSON.stringify({title,retained,sameWidth,widths:[listBounds.x,listBounds.width,feedBounds.x,feedBounds.width],gutter:getComputedStyle(d.documentElement).scrollbarGutter,actionsVisible,notesHidden,commentScoped,rejectedDoneRetained,pendingPresent,failedPresent,reportRemoved,remaining:d.querySelectorAll('.vd-feed-post').length,second:bd.querySelector('.vd-slot textarea').value,asset:ad.querySelector('img').src,focused:restoredFocus});
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
 </script></body></html>"""
 
@@ -1288,7 +1300,7 @@ def test_feed_isolates_edits_and_filters_only_acknowledged_completion(server, tm
     httpx.post(f"{base}/api/reviews/{driver['id']}/close")
     result = browser_result(driver["url"], tmp_path, 7000)
     assert result.get("retained") and result.get("actionsVisible"), result
-    assert result["notesHidden"]
+    assert result["notesHidden"] and result["sameWidth"], (result["widths"], result["gutter"])
     assert result["commentScoped"] and result["rejectedDoneRetained"] and result["focused"]
     assert result["pendingPresent"] and result["failedPresent"] and result["reportRemoved"]
     assert result["remaining"] == 1 and result["second"] == "Second answer"
@@ -1387,3 +1399,12 @@ def test_feed_remote_completion_filters_saved_posts_but_keeps_inflight_edits(
     )
     if mode == "dirty":
         assert result["value"] == "Local unsaved draft"
+
+
+@pytest.mark.parametrize("action", ["comment", "accept", "submit", "reopen", "close"])
+def test_sidebar_action_icons_are_bundled_and_served(server, action):
+    base, _ = server
+    response = httpx.get(f"{base}/_verdict/action-{action}.svg")
+    assert response.status_code == 200
+    assert response.headers["Content-Type"].startswith("image/svg+xml")
+    assert 'viewBox="0 0 24 24"' in response.text
