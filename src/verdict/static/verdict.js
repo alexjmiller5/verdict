@@ -118,11 +118,6 @@
               fold.setAttribute("aria-expanded", String(!frame.hidden));
               fold.textContent = frame.hidden ? "Expand" : "Collapse";
               fold.setAttribute("aria-label", `${frame.hidden ? "Expand" : "Collapse"} ${link.textContent}`);
-              if (frame.hidden && post === activePost) {
-                const posts = [...feed.querySelectorAll(".vd-feed-post")], at = posts.indexOf(post);
-                const next = [...posts.slice(at + 1), ...posts.slice(0, at)].find((p) => !p.querySelector("iframe").hidden);
-                activate(next); next?.scrollIntoView({ block: "start" });
-              }
             }
           }, "Collapse");
           frame.id = `vd-post-${row.dataset.review}`;

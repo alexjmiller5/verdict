@@ -1433,13 +1433,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  select(b);await pause(100);const second=title(),other=sidebar.querySelector('.vd-general');other.value='Second independent sidebar note';other.dispatchEvent(new Event('input'));
  const wide=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();await pause(100);const centered=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();
  select(a);await pause(100);const retained=sidebar.querySelector('.vd-general')===box&&box.value==='First retained sidebar note';
- const fold=a.closest('article').querySelector('.vd-post-toggle');fold.click();await pause(100);const skipped=a.hidden&&title()===second;fold.click();select(a);await pause(100);
+ const fold=a.closest('article').querySelector('.vd-post-toggle');sidebar.querySelector('.vd-general').focus();fold.focus();const beforeFold={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const folded=a.hidden&&title()===first&&Math.abs(w.scrollY-beforeFold.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-beforeFold.top)<1;const collapsedPosition={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const expandedInPlace=!a.hidden&&Math.abs(w.scrollY-collapsedPosition.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-collapsedPosition.top)<1;select(a);await pause(100);
  const scrollTarget=b.closest('article');box.blur();scrollTarget.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(150);const follows=title()===second,followScroll=w.scrollY,followTitle=title(),followBounds=b.closest('article').getBoundingClientRect().top;
  select(a);await pause(100);const full=d.querySelector('.vd-index').getBoundingClientRect(),rail=sidebar.getBoundingClientRect();const oldControls=a.verdictControls;a.contentWindow.location.reload();for(let i=0;i<60&&a.verdictControls===oldControls;i++)await pause(30);const reloadedControls=sidebar.querySelectorAll('.vd-bar').length;const mobilePlacement=sidebar.previousElementSibling===a.closest('article');let mobileStable=true;if(w.innerWidth<1024){sidebar.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(100);mobileStable=title()===first;select(a);}
  const real=a.contentWindow.fetch.bind(a.contentWindow);let releaseDone;a.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&JSON.parse(o.body).status==='done'?new Promise(resolve=>releaseDone=()=>resolve(real(u,o))):real(u,o);
  sidebar.querySelector('.vd-submit-action').click();d.querySelector('.vd-confirm .vd-primary').click();for(let i=0;i<40&&!releaseDone;i++)await pause(20);select(b);other.focus();other.value='Second note during unrelated completion';other.dispatchEvent(new Event('input'));releaseDone();await pause(200);const unrelatedFocus=d.activeElement===other;
+ const lastFold=b.closest('article').querySelector('.vd-post-toggle');other.blur();w.scrollTo(0,b.closest('article').offsetTop);await pause(50);lastFold.focus();const lastBefore={scroll:w.scrollY,top:lastFold.getBoundingClientRect().top};lastFold.click();await pause(100);const lastStable=b.hidden&&Math.abs(w.scrollY-lastBefore.scroll)<1&&Math.abs(lastFold.getBoundingClientRect().top-lastBefore.top)<1;lastFold.click();select(b);await pause(50);
 
- document.body.dataset.result=JSON.stringify({shared:true,mobileStable,mobilePlacement,unrelatedFocus,focusedDraft,first,second,retained,skipped,follows,wide,centered,followScroll,followTitle,followBounds,restored:!a.hidden,fullWidth:d.querySelector('.vd-index').classList.contains('vd-full-width'),nonOverlap:w.innerWidth<1024||full.right<=rail.left,reloadedControls,controls:sidebar.querySelectorAll('#vd-pane-toggle').length,firstValue:box.value,secondValue:other.value,scroll:w.scrollY,active:d.activeElement?.outerHTML?.slice(0,180),posts:[...d.querySelectorAll(".vd-feed-post")].map(p=>({top:p.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom}))});
+ document.body.dataset.result=JSON.stringify({shared:true,lastStable,mobileStable,mobilePlacement,unrelatedFocus,focusedDraft,first,second,retained,folded,expandedInPlace,follows,wide,centered,followScroll,followTitle,followBounds,restored:!a.hidden,fullWidth:d.querySelector('.vd-index').classList.contains('vd-full-width'),nonOverlap:w.innerWidth<1024||full.right<=rail.left,reloadedControls,controls:sidebar.querySelectorAll('#vd-pane-toggle').length,firstValue:box.value,secondValue:other.value,scroll:w.scrollY,active:d.activeElement?.outerHTML?.slice(0,180),posts:[...d.querySelectorAll(".vd-feed-post")].map(p=>({top:p.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom}))});
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
 </script></body></html>"""
 
@@ -1466,10 +1467,16 @@ def test_feed_shared_sidebar_tracks_visible_review_and_preserves_drafts(server, 
         result["first"] == "First synthetic review"
         and result["second"] == "Second synthetic review"
     )
-    assert result["retained"] and result["skipped"] and result["restored"] and result["follows"], (
-        json.dumps(result)
+    assert (
+        result["retained"]
+        and result["folded"]
+        and result["expandedInPlace"]
+        and result["restored"]
+        and result["follows"]
+    ), json.dumps(result)
+    assert result["focusedDraft"] and result["unrelatedFocus"] and result["lastStable"], json.dumps(
+        result
     )
-    assert result["focusedDraft"] and result["unrelatedFocus"], json.dumps(result)
     assert (
         result["fullWidth"]
         and result["nonOverlap"]
