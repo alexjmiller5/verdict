@@ -38,7 +38,7 @@
   a { color: var(--vd-accent); }
   [data-choices], [data-input] { margin-top: .6rem; font-weight: 600; }
 }
-.vd-review { max-width: none; margin: 0; box-sizing: border-box; padding-bottom: calc(var(--vd-pane-height, 14rem) + 1rem); }
+.vd-review { max-width: none; margin: 0; box-sizing: border-box; padding-bottom: 1rem; }
 .vd-index { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: var(--vd-fg); background: var(--vd-bg); }
 .vd-index small { color: var(--vd-muted); }
 .vd-index ul { list-style: none; padding: 0; }
@@ -60,7 +60,7 @@
 .vd-text { width: 100%; min-height: 3rem; font: 14px system-ui, sans-serif; padding: .5rem; border-radius: .5rem; border: 1px solid var(--vd-line); background: var(--vd-bg); color: var(--vd-fg); box-sizing: border-box; }
 .vd-section-accept { display: block; margin: .25rem 0 .75rem; font-size: 12px; }
 
-.vd-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999; padding: .6rem 1rem calc(.6rem + env(safe-area-inset-bottom));
+.vd-bar { position: static; left: 0; right: 0; bottom: 0; margin-top: 1.5rem; z-index: 9999; padding: .6rem 1rem calc(.6rem + env(safe-area-inset-bottom));
   background: var(--vd-bg); color: var(--vd-fg); border-top: 1px solid var(--vd-line); box-shadow: 0 -4px 16px rgba(0,0,0,.08);
   font: 14px system-ui, sans-serif; display: flex; flex-direction: column; gap: .5rem; }
 .vd-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; justify-content: space-between; }
@@ -103,8 +103,9 @@ body.vd-done .vd-slot button:not(.vd-note) { opacity: .7; }
 .vd-collapsed .vd-pane-arrow { transform: rotate(-90deg); }
 .vd-bar { max-height: 70dvh; overflow-y: auto; box-sizing: border-box; }
 @media (min-width: 64rem) {
-  .vd-bar { right: auto; width: 20rem; border-right: 1px solid var(--vd-line);
-    border-top-right-radius: .75rem; }
+  .vd-review:not(.vd-feed-embedded) { padding-right: 21.5rem; }
+  .vd-bar { position: fixed; left: auto; right: 0; width: 20rem; margin-top: 0;
+    border-left: 1px solid var(--vd-line); border-top-left-radius: .75rem; }
   .vd-bar .vd-row { justify-content: flex-start; }
   .vd-bar.vd-collapsed { padding: .5rem; }
   .vd-collapsed .vd-pane-heading { display: none; }

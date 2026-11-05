@@ -159,14 +159,13 @@ after changing `static/`.
 Re-renders after an autosave must never detach the text box being typed in
 (`rebuild` in `verdict.js`).
 
-Review controls dock to the bottom-left as a compact 20rem panel at widths of
-at least 64rem; smaller views use the full bottom width. The page uses the full
-reading width and reserves the measured panel height for scrolling past it. The disclosure arrow
+Review controls dock to the bottom-right as a compact 20rem panel at widths of
+at least 64rem. The page reserves a right-hand column so content cannot sit under
+the panel. Smaller views place controls in normal flow below the content. The disclosure arrow
 hides the notes area while keeping Comment mode, available recommendation actions
 and Done/Got it visible, with a persistent accessible expand button. Collapse state is per page, without stored preferences. Resizing
 and autosave preserve the existing general-notes textarea; a failed save expands
-the controls to show retry feedback. A ResizeObserver reserves the actual mobile
-pane height so the last content can scroll clear of it. The stable toggle is
+the controls to show retry feedback. Controls never overlay the page content. The stable toggle is
 `button#vd-pane-toggle[data-action="toggle-review-controls"]`; clicking it only
 expands/collapses controls. It exposes `aria-controls="vd-pane-body"`, boolean
 `aria-expanded`, and an action label of "Expand review controls" or
@@ -199,7 +198,7 @@ Frames remain mounted when switching views; returning to Feed restores the last
 focused field. Controls flow within each post instead of overlaying other posts.
 A post disappears only after acknowledged completion; pending/rejected saves keep
 it editable. Feed frames use short periodic state reads instead of holding many
-HTTP/1.1 long-poll connections. Standalone reviews retain their bottom-left dock.
+HTTP/1.1 long-poll connections. Standalone reviews retain their bottom-right dock and reserved reading column.
 
 Once Feed has mounted reviews, List Close/Reopen updates only its row and the
 associated post. Closing a mounted review first disables that review's controls

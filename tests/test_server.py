@@ -896,7 +896,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  while(!frame.contentDocument?.querySelector('.vd-bar')) await pause(50);
  const d=frame.contentDocument,w=frame.contentWindow,p=d.querySelector('.vd-bar');
  const toggle=d.querySelector('#vd-pane-toggle[data-action=toggle-review-controls]');
- const bounds=()=>{const r=p.getBoundingClientRect(),c=d.querySelector('#reading').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,contentWidth:c.width,contentRight:c.right,scrollWidth:d.documentElement.scrollWidth}};
+ const bounds=()=>{const r=p.getBoundingClientRect(),c=d.querySelector('#reading').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom,contentWidth:c.width,contentRight:c.right,contentBottom:c.bottom,scrollWidth:d.documentElement.scrollWidth}};
  const result={viewport:[w.innerWidth,w.innerHeight],expanded:bounds(),toggle:!!toggle,label:toggle?.getAttribute('aria-label'),controls:toggle?.getAttribute('aria-controls')};
  if(!toggle){document.body.dataset.result=JSON.stringify(result);return;}
  const note=d.querySelector('.vd-general');note.value='Retain collapse note';note.dispatchEvent(new Event('input'));
@@ -947,15 +947,19 @@ def test_review_controls_collapse_and_leave_full_reading_space(
     expanded, collapsed = result["expanded"], result["collapsed"]
     assert expanded["scrollWidth"] <= width and collapsed["scrollWidth"] <= width
     for bounds in [expanded, collapsed]:
-        assert abs(bounds["x"]) < 2 and abs(bounds["bottom"] - height) < 2
+        if width >= 1024:
+            assert abs(bounds["right"] - width) < 2 and abs(bounds["bottom"] - height) < 2
+            assert bounds["contentRight"] <= bounds["x"] - 8
+        else:
+            assert bounds["contentBottom"] <= bounds["y"]
         assert bounds["height"] <= height * 0.7 + 2
-    assert expanded["contentWidth"] >= width - 48
+    assert expanded["contentWidth"] >= width - (368 if width >= 1024 else 48)
     assert abs(collapsed["contentWidth"] - expanded["contentWidth"]) < 2
     if width >= 1024:
         assert 280 <= expanded["width"] <= 384
         assert collapsed["width"] == expanded["width"]
     else:
-        assert expanded["width"] == width
+        assert width - 48 <= expanded["width"] <= width
     assert collapsed["height"] < expanded["height"] - 40
     state = httpx.get(f"{base}/api/reviews/{child['id']}").json()
     assert state["general"] == "Retain collapse note"

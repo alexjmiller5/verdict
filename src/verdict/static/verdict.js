@@ -438,7 +438,6 @@
         el("div", { class: "vd-pane-heading" }, el("strong", { class: "vd-title" }, state.title), statusEl), paneToggle), paneBody);
       document.body.classList.add("vd-review");
       document.body.append(bar);
-      new ResizeObserver(() => document.body.style.setProperty("--vd-pane-height", `${bar.getBoundingClientRect().height}px`)).observe(bar);
     }
     const done = state.status === "done";
     const closed = state.status === "closed";
