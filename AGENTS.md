@@ -190,16 +190,24 @@ Mobile text fields use 16px text and the review/index use fast-tap manipulation
 behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subject
 to the browser; a web page cannot promise to disable Safari's zoom policy.
 
-The main page offers List and Feed views with the same horizontal bounds and a
-stable scrollbar gutter so switching does not shift the page. Feed contains only open reviews, each
-with a title link opening its standalone page in a separate tab and its own
-same-origin iframe. This
-keeps author styles, relative assets, selectors, comments and save state isolated.
+The main page offers List and Feed views. Feed uses the available reading width
+by default; its sidebar's Centered view / Full width toggle is also available on
+standalone reviews. The preference is stored in browser local storage. The index
+reserves a root scrollbar so mode changes do not add a scrollbar shift.
+Feed contains only open reviews, each with a title link opening its standalone
+page in a separate tab and its own same-origin iframe. Author styles, relative
+assets, selectors, comments and save queues remain isolated in that frame.
+One shared right sidebar shows the controls of the review currently in view.
+On narrow screens it sits in normal flow after that active post.
+Its existing controls node moves between its frame and the sidebar, preserving
+listeners and the notes textarea. Focused notes keep their review active while
+typing; selecting another review is explicit. Jump to review navigates to an
+open post; each post can be collapsed without removing its frame or draft.
 Frames remain mounted when switching views; returning to Feed restores the last
-focused field. Controls flow within each post instead of overlaying other posts.
-A post disappears only after acknowledged completion; pending/rejected saves keep
-it editable. Feed frames use short periodic state reads instead of holding many
-HTTP/1.1 long-poll connections. Standalone reviews retain their bottom-right dock and reserved reading column.
+focused field. A post disappears only after acknowledged completion;
+pending/rejected saves keep it editable. Feed frames use short periodic state
+reads instead of holding many HTTP/1.1 long-poll connections. Standalone reviews
+retain the right dock and reserved reading column.
 
 Once Feed has mounted reviews, List Close/Reopen updates only its row and the
 associated post. Closing a mounted review first disables that review's controls

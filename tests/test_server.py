@@ -1087,7 +1087,7 @@ const posted=new Promise(r=>ready=r);""",
     outer = b"""<html><body><iframe src="URL"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
-(async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.body.dataset.result)await pause(50);document.body.dataset.result=f.contentDocument.body.dataset.result;})();
+(async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.body?.dataset.result)await pause(50);document.body.dataset.result=f.contentDocument.body.dataset.result;})();
 </script></body></html>""".replace(b"URL", child["url"].encode())
     driver = publish(base, files={"index.html": outer})
     result = browser_result(driver["url"], tmp_path / "embedded", 5000)
@@ -1259,25 +1259,25 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const d=outer.contentDocument;
  const scrollStyle=d.createElement('style');scrollStyle.textContent='::-webkit-scrollbar{width:16px}';d.head.append(scrollStyle);const listBounds=d.querySelector('.vd-index').getBoundingClientRect();d.querySelector('[data-view=feed]').click();const feedBounds=d.querySelector('.vd-index').getBoundingClientRect();const sameWidth=listBounds.width===feedBounds.width&&listBounds.x===feedBounds.x;
  const frames=()=>[...d.querySelectorAll('.vd-feed-frame')];
- while(frames().length!==3||frames().some(f=>!f.contentDocument?.querySelector('.vd-general')))await pause(50);
+ while(frames().length!==3||frames().some(f=>!f.verdictControls?.querySelector('.vd-general')))await pause(50);
  const [a,b,c]=frames(),ad=a.contentDocument,bd=b.contentDocument,cd=c.contentDocument;
- const input=(doc,selector,text)=>{let e=doc.querySelector(selector);e.focus();e.value=text;e.dispatchEvent(new Event('input'));return e};
+ const input=(doc,selector,text)=>{if(doc.matches?.('.vd-bar')){let f=frames().find(f=>f.verdictControls===doc),pick=d.querySelector('[aria-label="Jump to review"]');pick.value=f.closest('article').dataset.review;pick.dispatchEvent(new Event('change'));}let e=doc.querySelector(selector);e.focus();e.value=text;e.dispatchEvent(new Event('input'));return e};
  const sameBox=input(ad,'.vd-slot textarea','First answer');input(bd,'.vd-slot textarea','Second answer');
  ad.querySelector('.vd-note').click();ad.querySelector('.vd-sheet textarea').value='First comment';[...ad.querySelectorAll('.vd-sheet button')].find(x=>x.textContent==='Add note').click();
- input(ad,'.vd-general','First general');input(bd,'.vd-general','Second general');
+ input(a.verdictControls,'.vd-general','First general');input(b.verdictControls,'.vd-general','Second general');
  await pause(1000);
  const title=d.querySelector('.vd-feed-post h2 a').getAttribute('href');
  d.querySelector('[data-view=list]').focus();d.querySelector('[data-view=list]').click();d.querySelector('[data-view=feed]').focus();d.querySelector('[data-view=feed]').click();
- const retained=sameBox===ad.querySelector('.vd-slot textarea')&&sameBox.value==='First answer';const restoredFocus=d.activeElement===b&&bd.activeElement===bd.querySelector('.vd-general');
+ const retained=sameBox===ad.querySelector('.vd-slot textarea')&&sameBox.value==='First answer';const restoredFocus=b.verdictControls.querySelector('.vd-general').ownerDocument.activeElement===b.verdictControls.querySelector('.vd-general');
  let fail=true,failDone='MODE'==='done',release,started;const startedSave=new Promise(r=>started=r),real=a.contentWindow.fetch.bind(a.contentWindow);
  a.contentWindow.fetch=(url,opts)=>{if(opts?.method==='PUT'&&JSON.parse(opts.body).status==='done'&&failDone){failDone=false;return Promise.resolve(new a.contentWindow.Response('{}',{status:503}));}if(String(url).endsWith('/state')&&opts?.method==='PUT'&&!JSON.parse(opts.body).status){started();return new Promise(resolve=>release=()=>resolve(fail?new a.contentWindow.Response('{}',{status:503}):real(url,opts)));}return real(url,opts)};
- input(ad,'.vd-general','Retryable feed note');await startedSave;
- ad.querySelector('#vd-pane-toggle').click();
- const notesHidden=getComputedStyle(ad.querySelector('.vd-general')).display==='none';const actions=[...ad.querySelectorAll('.vd-pane-body button')].filter(x=>['comment mode','accept all recommendations','Done'].includes(x.textContent));const actionsVisible=actions.length===3&&actions.every(x=>x.getBoundingClientRect().height>0);actions.find(x=>x.textContent==='comment mode').click();const commentScoped=ad.body.classList.contains('vd-comment-mode')&&!bd.body.classList.contains('vd-comment-mode');actions.find(x=>x.textContent==='comment mode').click();actions.find(x=>x.textContent==='accept all recommendations').click();
- const send=()=>{ad.querySelector('.vd-bar .vd-primary').click();ad.querySelector('.vd-confirm .vd-primary').click()};
+ input(a.verdictControls,'.vd-general','Retryable feed note');await startedSave;
+ a.verdictControls.querySelector('#vd-pane-toggle').click();
+ const notesHidden=getComputedStyle(a.verdictControls.querySelector('.vd-general')).display==='none';const actions=[...a.verdictControls.querySelectorAll('.vd-pane-body button')].filter(x=>['comment mode','accept all recommendations','Done'].includes(x.textContent));const actionsVisible=actions.length===3&&actions.every(x=>x.getBoundingClientRect().height>0);actions.find(x=>x.textContent==='comment mode').click();const commentScoped=ad.body.classList.contains('vd-comment-mode')&&!bd.body.classList.contains('vd-comment-mode');actions.find(x=>x.textContent==='comment mode').click();actions.find(x=>x.textContent==='accept all recommendations').click();
+ const send=()=>{a.verdictControls.querySelector('.vd-primary').click();d.querySelector('.vd-confirm .vd-primary').click()};
  send();await pause(50);const pendingPresent=d.querySelectorAll('.vd-feed-post').length===3;release();await pause(100);
- const failedPresent=d.querySelectorAll('.vd-feed-post').length===3&&ad.querySelector('.vd-general').value==='Retryable feed note'&&!ad.querySelector('.vd-general').disabled;
- cd.querySelector('#vd-pane-toggle').click();cd.querySelector('.vd-primary').click();await pause(200);
+ const failedPresent=d.querySelectorAll('.vd-feed-post').length===3&&a.verdictControls.querySelector('.vd-general').value==='Retryable feed note'&&!a.verdictControls.querySelector('.vd-general').disabled;
+ c.verdictControls.querySelector('#vd-pane-toggle').click();c.verdictControls.querySelector('.vd-primary').click();await pause(200);
  const reportRemoved=d.querySelectorAll('.vd-feed-post').length===2;
  fail=false;send();release();await pause(150);const rejectedDoneRetained='MODE'!=='done'||d.querySelectorAll('.vd-feed-post').length===2;if('MODE'==='done')send();await pause(500);
  document.body.dataset.result=JSON.stringify({title,retained,sameWidth,widths:[listBounds.x,listBounds.width,feedBounds.x,feedBounds.width],gutter:getComputedStyle(d.documentElement).scrollbarGutter,actionsVisible,notesHidden,commentScoped,rejectedDoneRetained,pendingPresent,failedPresent,reportRemoved,remaining:d.querySelectorAll('.vd-feed-post').length,second:bd.querySelector('.vd-slot textarea').value,asset:ad.querySelector('img').src,focused:restoredFocus});
@@ -1305,8 +1305,10 @@ def test_feed_isolates_edits_and_filters_only_acknowledged_completion(server, tm
     httpx.post(f"{base}/api/reviews/{driver['id']}/close")
     result = browser_result(driver["url"], tmp_path, 7000)
     assert result.get("retained") and result.get("actionsVisible"), result
-    assert result["notesHidden"] and result["sameWidth"], (result["widths"], result["gutter"])
-    assert result["commentScoped"] and result["rejectedDoneRetained"] and result["focused"]
+    assert result["notesHidden"]
+    assert result["commentScoped"] and result["rejectedDoneRetained"] and result["focused"], (
+        json.dumps(result)
+    )
     assert result["pendingPresent"] and result["failedPresent"] and result["reportRemoved"]
     assert result["remaining"] == 1 and result["second"] == "Second answer"
     assert result["title"] == f"/r/{first['id']}/"
@@ -1329,14 +1331,14 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(50);
  const d=f.contentDocument;d.querySelector('[data-view=feed]').click();
- while(d.querySelectorAll('.vd-feed-frame').length!==2||[...d.querySelectorAll('.vd-feed-frame')].some(x=>!x.contentDocument?.querySelector('.vd-general')))await pause(50);
+ while(d.querySelectorAll('.vd-feed-frame').length!==2||[...d.querySelectorAll('.vd-feed-frame')].some(x=>!x.verdictControls?.querySelector('.vd-general')))await pause(50);
  const [a,b]=d.querySelectorAll('.vd-feed-frame'),ad=a.contentDocument,bd=b.contentDocument;
  const target=d.querySelector('.vd-feed-post h2 a').target;
- const box=bd.querySelector('.vd-general');box.value='Other review draft';box.dispatchEvent(new Event('input'));
+ const box=b.verdictControls.querySelector('.vd-general');box.value='Other review draft';box.dispatchEvent(new Event('input'));
  d.querySelector('[data-view=list]').click();
  const close=which=>{d.querySelectorAll('#vd-list [data-action]')[which].click();d.querySelector('.vd-confirm .vd-primary').click()};
  close(0);await pause(500);
- const retained=box===b.contentDocument.querySelector('.vd-general')&&box.value==='Other review draft';
+ const retained=box===b.verdictControls.querySelector('.vd-general')&&box.value==='Other review draft';
  let fail=true;const real=b.contentWindow.fetch.bind(b.contentWindow);b.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&fail?Promise.resolve(new b.contentWindow.Response('{}',{status:503})):real(u,o);
  box.value='Retryable close note';box.dispatchEvent(new Event('input'));close(1);await pause(100);
  const failed=d.querySelectorAll('.vd-feed-post').length===1&&!!d.querySelector('.vd-index-error')&&box.value==='Retryable close note';
@@ -1367,18 +1369,18 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
  const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(50);
  const d=f.contentDocument;d.querySelector('[data-view=feed]').click();
- while(!d.querySelector('.vd-feed-frame')?.contentDocument?.querySelector('.vd-general'))await pause(50);
+ while(!d.querySelector('.vd-feed-frame')?.verdictControls?.querySelector('.vd-general'))await pause(50);
  const frame=d.querySelector('.vd-feed-frame'),doc=frame.contentDocument;
  let release,started;const saving=new Promise(r=>started=r);
  if('MODE'==='dirty'){
   const real=frame.contentWindow.fetch.bind(frame.contentWindow);
   frame.contentWindow.fetch=(u,o)=>o?.method==='PUT'?new Promise(r=>{release=()=>r(new frame.contentWindow.Response('{}',{status:503}));started()}):real(u,o);
-  const box=doc.querySelector('.vd-general');box.value='Local unsaved draft';box.dispatchEvent(new Event('input'));doc.querySelector('.vd-bar .vd-primary').click();doc.querySelector('.vd-confirm .vd-primary').click();d.querySelector('.vd-feed-post h2 a').focus();await saving;
+  const box=frame.verdictControls.querySelector('.vd-general');box.value='Local unsaved draft';box.dispatchEvent(new Event('input'));frame.verdictControls.querySelector('.vd-primary').click();d.querySelector('.vd-confirm .vd-primary').click();d.querySelector('.vd-feed-post h2 a').focus();await saving;
  }
  await original('BASE/api/reviews/RID/'+('MODE'==='closed'?'close':'state'),{method:'MODE'==='closed'?'POST':'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'done'})});
  await pause(5200);
  if(release)release();await pause(50);
- document.body.dataset.result=JSON.stringify({posts:d.querySelectorAll('.vd-feed-post').length,rowStatus:d.querySelector('#vd-list [data-review]').dataset.status,value:doc.querySelector('.vd-general').value});
+ document.body.dataset.result=JSON.stringify({posts:d.querySelectorAll('.vd-feed-post').length,rowStatus:d.querySelector('#vd-list [data-review]').dataset.status,value:frame.verdictControls.querySelector('.vd-general').value});
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
 </script></body></html>"""
 
@@ -1413,3 +1415,98 @@ def test_sidebar_action_icons_are_bundled_and_served(server, action):
     assert response.status_code == 200
     assert response.headers["Content-Type"].startswith("image/svg+xml")
     assert 'viewBox="0 0 24 24"' in response.text
+
+
+SHARED_FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
+ const d=outer.contentDocument,w=outer.contentWindow;d.querySelector('[data-view=feed]').click();
+ for(let i=0;i<80&&(d.querySelectorAll('.vd-feed-frame').length!==2||[...d.querySelectorAll('.vd-feed-frame')].some(f=>!f.contentDocument?.querySelector('.vd-slot')));i++)await pause(30);
+ if(d.querySelectorAll('.vd-feed-frame').length!==2){document.body.dataset.result=JSON.stringify({error:d.body.innerHTML});return;}
+ const [a,b]=d.querySelectorAll('.vd-feed-frame'),sidebar=d.querySelector('.vd-feed-sidebar');
+ if(!sidebar){document.body.dataset.result=JSON.stringify({shared:false});return;}
+ const pick=d.querySelector('[aria-label="Jump to review"]'),title=()=>sidebar.querySelector('.vd-title')?.textContent;
+ const select=f=>{pick.value=f.closest('article').dataset.review;pick.dispatchEvent(new Event('change'));};
+ select(a);await pause(100);const first=title(),box=sidebar.querySelector('.vd-general');box.value='First retained sidebar note';box.dispatchEvent(new Event('input'));box.focus();await pause(600);await a.contentWindow.fetch(a.src.replace('/r/','/api/reviews/').replace(/\/$/,'')+'/state',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({general:'Synthetic remote general'})});const answer=a.contentDocument.querySelector('.vd-slot textarea');answer.value='Trigger acknowledged render';answer.dispatchEvent(new Event('input'));await pause(600);const focusedDraft=box.value==='First retained sidebar note'&&d.activeElement===box;
+ select(b);await pause(100);const second=title(),other=sidebar.querySelector('.vd-general');other.value='Second independent sidebar note';other.dispatchEvent(new Event('input'));
+ const wide=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();await pause(100);const centered=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();
+ select(a);await pause(100);const retained=sidebar.querySelector('.vd-general')===box&&box.value==='First retained sidebar note';
+ const fold=a.closest('article').querySelector('.vd-post-toggle');fold.click();await pause(100);const skipped=a.hidden&&title()===second;fold.click();select(a);await pause(100);
+ const scrollTarget=b.closest('article');box.blur();scrollTarget.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(150);const follows=title()===second,followScroll=w.scrollY,followTitle=title(),followBounds=b.closest('article').getBoundingClientRect().top;
+ select(a);await pause(100);const full=d.querySelector('.vd-index').getBoundingClientRect(),rail=sidebar.getBoundingClientRect();const oldControls=a.verdictControls;a.contentWindow.location.reload();for(let i=0;i<60&&a.verdictControls===oldControls;i++)await pause(30);const reloadedControls=sidebar.querySelectorAll('.vd-bar').length;const mobilePlacement=sidebar.previousElementSibling===a.closest('article');let mobileStable=true;if(w.innerWidth<1024){sidebar.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(100);mobileStable=title()===first;select(a);}
+ const real=a.contentWindow.fetch.bind(a.contentWindow);let releaseDone;a.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&JSON.parse(o.body).status==='done'?new Promise(resolve=>releaseDone=()=>resolve(real(u,o))):real(u,o);
+ sidebar.querySelector('.vd-submit-action').click();d.querySelector('.vd-confirm .vd-primary').click();for(let i=0;i<40&&!releaseDone;i++)await pause(20);select(b);other.focus();other.value='Second note during unrelated completion';other.dispatchEvent(new Event('input'));releaseDone();await pause(200);const unrelatedFocus=d.activeElement===other;
+
+ document.body.dataset.result=JSON.stringify({shared:true,mobileStable,mobilePlacement,unrelatedFocus,focusedDraft,first,second,retained,skipped,follows,wide,centered,followScroll,followTitle,followBounds,restored:!a.hidden,fullWidth:d.querySelector('.vd-index').classList.contains('vd-full-width'),nonOverlap:w.innerWidth<1024||full.right<=rail.left,reloadedControls,controls:sidebar.querySelectorAll('#vd-pane-toggle').length,firstValue:box.value,secondValue:other.value,scroll:w.scrollY,active:d.activeElement?.outerHTML?.slice(0,180),posts:[...d.querySelectorAll(".vd-feed-post")].map(p=>({top:p.getBoundingClientRect().top,bottom:p.getBoundingClientRect().bottom}))});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("width", [1366, 375])
+def test_feed_shared_sidebar_tracks_visible_review_and_preserves_drafts(server, tmp_path, width):
+    base, _ = server
+    content = b'<html><body><main style="min-height:1100px"><p data-item="q" data-input="Answer">Synthetic question</p></main></body></html>'
+    publish(base, title="First synthetic review", files={"index.html": content})
+    publish(base, title="Second synthetic review", files={"index.html": content})
+    driver = publish(
+        base,
+        files={
+            "index.html": SHARED_FEED_DRIVER.replace(b"BASE", base.encode()).replace(
+                b"WIDTH", str(width).encode()
+            )
+        },
+    )
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 5000)
+    assert result.get("shared"), result
+    assert (
+        result["first"] == "First synthetic review"
+        and result["second"] == "Second synthetic review"
+    )
+    assert result["retained"] and result["skipped"] and result["restored"] and result["follows"], (
+        json.dumps(result)
+    )
+    assert result["focusedDraft"] and result["unrelatedFocus"], json.dumps(result)
+    assert (
+        result["fullWidth"]
+        and result["nonOverlap"]
+        and result["controls"] == 1
+        and result["reloadedControls"] == 1
+    )
+    assert (
+        result["firstValue"] == "First retained sidebar note"
+        and result["secondValue"] == "Second note during unrelated completion"
+    )
+    if width < 1024:
+        assert result["mobilePlacement"] and result["mobileStable"], json.dumps(result)
+    if width >= 1024:
+        assert result["wide"] > result["centered"] + 200
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_individual_review_width_toggle_retains_live_answer_and_notes(server, tmp_path):
+    base, _ = server
+    page = rb"""<html><body><main id="reading"><p data-item="q" data-input="Answer">Synthetic question</p></main><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+(async()=>{const pause=ms=>new Promise(r=>setTimeout(r,ms));while(!document.querySelector('.vd-width-toggle'))await pause(30);
+const answer=document.querySelector('.vd-slot textarea'),notes=document.querySelector('.vd-general'),button=document.querySelector('.vd-width-toggle');answer.value='Retain answer';answer.dispatchEvent(new Event('input'));notes.value='Retain notes';notes.dispatchEvent(new Event('input'));
+const before=document.querySelector('#reading').getBoundingClientRect().width;button.click();const centered=document.querySelector('#reading').getBoundingClientRect().width;const label=button.getAttribute('aria-label');button.click();await pause(600);
+document.body.dataset.result=JSON.stringify({before,centered,label,retained:answer===document.querySelector('.vd-slot textarea')&&notes===document.querySelector('.vd-general')&&answer.value==='Retain answer'&&notes.value==='Retain notes',wide:document.body.classList.contains('vd-full-width')});})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+    review = publish(base, files={"index.html": page})
+    # Headless default viewport is narrow; enlarge the reading area without changing browser ownership.
+    driver = publish(
+        base,
+        files={
+            "index.html": b'<iframe src="'
+            + review["url"].encode()
+            + rb'" style="width:1366px;height:800px"></iframe><script>const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,"wait=0"),o);(async()=>{while(!document.querySelector("iframe").contentDocument?.body?.dataset.result)await new Promise(r=>setTimeout(r,30));document.body.dataset.result=document.querySelector("iframe").contentDocument.body.dataset.result})()</script>'
+        },
+    )
+    result = browser_result(driver["url"], tmp_path, 3000)
+    assert result["retained"] and result["wide"], result
+    assert result["before"] > result["centered"] + 200
+    assert result["label"] == "Use full width layout"

@@ -31,7 +31,8 @@
   };
 
   const confirmDialog = (title, details, label, action, cancelLabel = "Cancel") => {
-    document.querySelectorAll(".vd-confirm").forEach((dialog) => { dialog.close(); dialog.remove(); });
+    const dialogDocument = feedFrame ? window.parent.document : document;
+    dialogDocument.querySelectorAll(".vd-confirm").forEach((dialog) => { dialog.close(); dialog.remove(); });
     const dialog = el("dialog", { class: "vd-sheet vd-confirm", "aria-labelledby": "vd-confirm-title" });
     const dismiss = () => { dialog.close(); dialog.remove(); };
     dialog.addEventListener("close", () => dialog.remove());
@@ -42,14 +43,64 @@
         el("button", { type: "button", onclick: dismiss, autofocus: "" }, cancelLabel),
         el("button", { type: "button", class: "vd-primary", onclick: () => { dismiss(); action(); } }, label))
     );
-    document.body.append(dialog);
+    dialogDocument.body.append(dialog);
     dialog.showModal();
   };
 
   const bootIndex = () => {
     const index = document.querySelector(".vd-index");
     const list = document.querySelector("#vd-list"), feed = document.querySelector("#vd-feed");
-    let feedReady = false, feedFocus = null;
+    document.body.classList.add("vd-index-page");
+    let feedReady = false, feedFocus = null, activePost = null;
+    const sidebar = el("aside", { class: "vd-feed-sidebar", "aria-label": "Current review", hidden: "" });
+    const jump = el("select", { "aria-label": "Jump to review", class: "vd-feed-jump" });
+    sidebar.append(jump); document.body.append(sidebar);
+    const applyWidth = (wide) => {
+      index.classList.toggle("vd-full-width", wide);
+      try { localStorage.setItem("verdict:full-width", String(wide)); } catch {}
+      feed.querySelectorAll("iframe").forEach((f) => f.verdictSetWidth?.(wide));
+    };
+    let initialWide = true;
+    try { initialWide = localStorage.getItem("verdict:full-width") !== "false"; } catch {}
+    applyWidth(initialWide);
+    const syncRail = () => {
+      const collapsed = !!sidebar.querySelector(".vd-bar.vd-collapsed");
+      sidebar.classList.toggle("vd-collapsed", collapsed);
+      document.body.classList.toggle("vd-pane-collapsed", collapsed);
+    };
+    const activate = (post) => {
+      const previous = activePost?.querySelector("iframe");
+      if (previous && previous !== post?.querySelector("iframe") && previous.verdictControls) previous.contentDocument.body.append(previous.verdictControls);
+      activePost = post;
+      if (post && innerWidth < 1024) post.after(sidebar);
+      else if (sidebar.parentNode !== document.body) document.body.append(sidebar);
+      const frame = post?.querySelector("iframe"), controls = frame?.verdictControls;
+      sidebar.querySelectorAll(".vd-bar").forEach((node) => { if (node !== controls) node.remove(); });
+      if (controls && controls.parentNode !== sidebar) sidebar.append(controls);
+      sidebar.hidden = !controls || feed.hidden;
+      jump.value = post?.dataset.review || "";
+      feed.querySelectorAll(".vd-feed-post").forEach((p) => p.classList.toggle("vd-active-post", p === post));
+      syncRail();
+    };
+    const visiblePost = () => {
+      if (feed.hidden || (sidebar.contains(document.activeElement) && document.activeElement.matches("textarea"))) return;
+      const posts = [...feed.querySelectorAll(".vd-feed-post")].filter((p) => !p.querySelector("iframe").hidden);
+      const line = Math.min(160, innerHeight / 3);
+      activate(posts.find((p) => Math.max(p.getBoundingClientRect().bottom, p === activePost && innerWidth < 1024 ? sidebar.getBoundingClientRect().bottom : 0) > line) || posts.at(-1));
+    };
+    jump.addEventListener("change", () => {
+      const post = [...feed.querySelectorAll(".vd-feed-post")].find((p) => p.dataset.review === jump.value);
+      if (!post) return;
+      post.querySelector("iframe").hidden = false;
+      post.querySelector(".vd-post-toggle").setAttribute("aria-expanded", "true");
+      post.querySelector(".vd-post-toggle").textContent = "Collapse";
+      post.querySelector(".vd-post-toggle").setAttribute("aria-label", `Collapse ${post.querySelector("h2 a").textContent}`);
+      activate(post); post.scrollIntoView({ block: "start" });
+    });
+    addEventListener("scroll", visiblePost, { passive: true });
+    addEventListener("resize", () => activate(activePost));
+    sidebar.addEventListener("focusout", () => requestAnimationFrame(visiblePost));
+    document.addEventListener("focusin", (event) => { if (sidebar.contains(event.target)) feedFocus = event.target; });
     const emptyFeed = () => { feed.querySelector(".vd-feed-empty").hidden = !!feed.querySelector(".vd-feed-post"); };
     index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
       const showFeed = button.dataset.view === "feed";
@@ -61,11 +112,32 @@
           const post = el("article", { class: "vd-feed-post", "data-review": row.dataset.review });
           const frame = el("iframe", { class: "vd-feed-frame", src: link.getAttribute("href"), title: link.textContent });
           const title = el("a", { href: link.getAttribute("href"), target: "_blank", rel: "noopener" }, link.textContent);
-          post.append(el("h2", {}, title), frame);
+          const fold = el("button", { type: "button", class: "vd-post-toggle", "aria-label": `Collapse ${link.textContent}`, "aria-expanded": "true", "aria-controls": `vd-post-${row.dataset.review}`,
+            onclick: () => {
+              frame.hidden = !frame.hidden;
+              fold.setAttribute("aria-expanded", String(!frame.hidden));
+              fold.textContent = frame.hidden ? "Expand" : "Collapse";
+              fold.setAttribute("aria-label", `${frame.hidden ? "Expand" : "Collapse"} ${link.textContent}`);
+              if (frame.hidden && post === activePost) {
+                const posts = [...feed.querySelectorAll(".vd-feed-post")], at = posts.indexOf(post);
+                const next = [...posts.slice(at + 1), ...posts.slice(0, at)].find((p) => !p.querySelector("iframe").hidden);
+                activate(next); next?.scrollIntoView({ block: "start" });
+              }
+            }
+          }, "Collapse");
+          frame.id = `vd-post-${row.dataset.review}`;
+          post.append(el("h2", {}, title, fold), frame);
+          frame.addEventListener("verdict:controls", () => {
+            frame.verdictSetWidth?.(index.classList.contains("vd-full-width"));
+            if (!activePost || activePost === post) activate(post);
+          });
+          frame.addEventListener("verdict:controls-change", syncRail);
+          frame.addEventListener("verdict:width", (event) => applyWidth(event.detail.wide));
           frame.addEventListener("load", () => {
             const body = frame.contentDocument?.body;
             if (!body) return;
-            frame.contentDocument.addEventListener("focusin", (e) => { feedFocus = e.target; });
+            frame.contentDocument.addEventListener("focusin", (e) => { feedFocus = e.target; activate(post); });
+            frame.contentDocument.addEventListener("pointerdown", () => activate(post));
             const resize = () => { frame.style.height = `${Math.ceil(body.getBoundingClientRect().height)}px`; };
             const observer = new ResizeObserver(resize);
             observer.observe(body);
@@ -73,7 +145,11 @@
             resize();
           });
           frame.addEventListener("verdict:completed", (event) => {
+            const wasActive = post === activePost;
+            if (wasActive) activate(null);
             post.remove();
+            jump.querySelector(`option[value="${row.dataset.review}"]`)?.remove();
+            visiblePost();
             row.dataset.status = event.detail.status;
             row.classList.add("vd-finished");
             row.querySelector("small").textContent = event.detail.status;
@@ -82,13 +158,17 @@
             button.textContent = event.detail.status === "closed" ? "Reopen" : "Close";
             button.setAttribute("aria-label", `${button.textContent} review`);
             emptyFeed();
-            (feed.querySelector(".vd-feed-post h2 a") || index.querySelector('[data-view="feed"]')).focus();
+            if (wasActive) (feed.querySelector(".vd-feed-post h2 a") || index.querySelector('[data-view="feed"]')).focus();
           });
           feed.append(post);
+          jump.append(el("option", { value: row.dataset.review }, link.textContent));
         });
       }
       list.hidden = showFeed; feed.hidden = !showFeed;
       index.classList.toggle("vd-feed-view", showFeed);
+      document.body.classList.toggle("vd-feed-active", showFeed);
+      sidebar.hidden = !showFeed || !activePost;
+      if (showFeed && !activePost) visiblePost();
       index.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
       emptyFeed();
       if (showFeed && feedFocus?.isConnected) feedFocus.focus();
@@ -140,7 +220,7 @@
     else parent.append(...before);
     parent.append(...after);
   };
-  const typing = (box) => box === document.activeElement;
+  const typing = (box) => box === box.ownerDocument.activeElement;
   const submitKey = (e) => e.key === "Enter" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing;
 
   const items = () => [...document.querySelectorAll("[data-item]")];
@@ -365,7 +445,18 @@
 
   // --- toolbar -------------------------------------------------------------
 
-  let bar, statusEl, general, paneBody, paneToggle;
+  let bar, statusEl, general, paneBody, paneToggle, widthToggle;
+  let fullWidth = true;
+  try { fullWidth = localStorage.getItem("verdict:full-width") !== "false"; } catch {}
+  const setWidth = (wide) => {
+    fullWidth = wide;
+    document.body.classList.toggle("vd-full-width", wide);
+    if (widthToggle) {
+      widthToggle.textContent = wide ? "Centered view" : "Full width";
+      widthToggle.setAttribute("aria-label", wide ? "Use centered layout" : "Use full width layout");
+      widthToggle.setAttribute("aria-pressed", String(wide));
+    }
+  };
   let paneCollapsed = false;
   const collapsePane = (collapsed) => {
     paneCollapsed = collapsed;
@@ -374,6 +465,7 @@
     document.body.classList.toggle("vd-pane-collapsed", collapsed);
     paneToggle.setAttribute("aria-expanded", String(!collapsed));
     paneToggle.setAttribute("aria-label", `${collapsed ? "Expand" : "Collapse"} review controls`);
+    feedFrame?.dispatchEvent(new CustomEvent("verdict:controls-change"));
   };
   const status = (text) => { if (statusEl) statusEl.textContent = text; };
   // An agent waiting on this review heartbeats as a waiter (`verdict wait`).
@@ -434,10 +526,20 @@
         "aria-label": "Collapse review controls", onclick: () => collapsePane(!paneCollapsed),
       }, el("span", { class: "vd-pane-arrow", "aria-hidden": "true" }));
       statusEl = el("span", { class: "vd-status" });
+      widthToggle = el("button", { type: "button", class: "vd-width-toggle", onclick: () => {
+        if (feedFrame) feedFrame.dispatchEvent(new CustomEvent("verdict:width", { detail: { wide: !fullWidth } }));
+        else { setWidth(!fullWidth); try { localStorage.setItem("verdict:full-width", String(fullWidth)); } catch {} }
+      } });
+      setWidth(fullWidth);
       bar.append(el("div", { class: "vd-pane-head" },
-        el("div", { class: "vd-pane-heading" }, el("strong", { class: "vd-title" }, state.title), statusEl), paneToggle), paneBody);
+        el("div", { class: "vd-pane-heading" }, el("strong", { class: "vd-title" }, state.title), statusEl, widthToggle), paneToggle), paneBody);
       document.body.classList.add("vd-review");
       document.body.append(bar);
+      if (feedFrame) {
+        feedFrame.verdictControls = bar;
+        feedFrame.verdictSetWidth = setWidth;
+        feedFrame.dispatchEvent(new CustomEvent("verdict:controls"));
+      }
     }
     const done = state.status === "done";
     const closed = state.status === "closed";
@@ -480,7 +582,7 @@
     if (feedFrame && state.status !== "open" && !finishing && !saving && !Object.keys(pending).length) {
       feedFrame.dispatchEvent(new CustomEvent("verdict:completed", { detail: { status: state.status } }));
     }
-    document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-bar button, .vd-bar textarea, .vd-section-accept, .vd-pin").forEach((control) => { control.disabled = finishing; });
+    [...document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-section-accept, .vd-pin"), ...bar.querySelectorAll("button, textarea")].forEach((control) => { control.disabled = finishing; });
   };
 
   const boot = async () => {
@@ -503,7 +605,7 @@
     };
     document.addEventListener("click", onPageClick, true);
     // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
-    document.addEventListener("keydown", (e) => {
+    const reviewKey = (e) => {
       if (submitKey(e) && e.target.matches(".vd-slot textarea, .vd-general") && state.status === "open") {
         e.preventDefault();
         confirmDone();
@@ -512,8 +614,10 @@
         e.preventDefault();
         toggleCommentMode();
       }
-    });
+    };
+    document.addEventListener("keydown", reviewKey);
     render();
+    if (feedFrame) bar.addEventListener("keydown", reviewKey);
     // keep in sync when the agent closes it or another device edits. Only a
     // visible tab long-polls: browsers open six connections per host, so polls
     // parked in background tabs would stall every save and page load.
