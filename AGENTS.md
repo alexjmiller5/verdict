@@ -202,7 +202,10 @@ On narrow screens it sits in normal flow after that active post.
 Its existing controls node moves between its frame and the sidebar, preserving
 listeners and the notes textarea. Focused notes keep their review active while
 typing; selecting another review is explicit. Jump to review navigates to an
-open post; each post collapses in place without navigation or removing its frame
+open post. Collapse all and Expand all at the top of Feed affect its current
+posts through the same individual toggles, without reloading frames or saving
+review state; both controls are disabled for an empty feed. Each post collapses
+in place without navigation or removing its frame
 or draft. Folded feeds retain trailing viewport space to prevent bottom-of-page
 scroll clamping.
 Frame sizing ignores zero-height measurements while hidden, retaining the prior

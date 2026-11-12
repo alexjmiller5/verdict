@@ -1521,3 +1521,86 @@ document.body.dataset.result=JSON.stringify({before,centered,label,retained:answ
     assert result["retained"] and result["wide"], result
     assert result["before"] > result["centered"] + 200
     assert result["label"] == "Use full width layout"
+
+
+BULK_FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
+ const d=outer.contentDocument,w=outer.contentWindow,feed=d.querySelector('#vd-feed'),toolbar=feed.querySelector('.vd-feed-actions');
+ if(!toolbar){document.body.dataset.result=JSON.stringify({controls:false});return;}
+ const hiddenInList=toolbar.getBoundingClientRect().height===0;d.querySelector('[data-view=feed]').click();
+ while(d.querySelectorAll('.vd-feed-frame').length!==3||[...d.querySelectorAll('.vd-feed-frame')].some(f=>!f.verdictControls?.querySelector('.vd-general')))await pause(30);
+ const frames=[...d.querySelectorAll('.vd-feed-frame')],collapse=toolbar.querySelector('[data-feed-fold=collapse]'),expand=toolbar.querySelector('[data-feed-fold=expand]');
+ const boxes=frames.map(f=>f.contentDocument.querySelector('.vd-slot textarea')),notes=frames.map(f=>f.verdictControls.querySelector('.vd-general')),bars=frames.map(f=>f.verdictControls),folds=frames.map(f=>f.closest('article').querySelector('.vd-post-toggle'));
+ let release,started;const saving=new Promise(r=>started=r),last=frames[2],real=last.contentWindow.fetch.bind(last.contentWindow);
+ last.contentWindow.fetch=(u,o)=>o?.method==='PUT'?new Promise(resolve=>{release=()=>resolve(real(u,o));started()}):real(u,o);
+ frames.forEach((f,i)=>{boxes[i].value='Answer '+i;boxes[i].dispatchEvent(new Event('input'));notes[i].value='Note '+i;notes[i].dispatchEvent(new Event('input'))});await saving;
+ collapse.focus();const before={scroll:w.scrollY,top:toolbar.getBoundingClientRect().top};collapse.click();await pause(100);
+ const collapsed=frames.every(f=>f.hidden)&&folds.every(b=>b.getAttribute('aria-expanded')==='false'&&b.textContent==='Expand'),collapseStable=w.scrollY===before.scroll&&Math.abs(toolbar.getBoundingClientRect().top-before.top)<1&&d.activeElement===collapse;
+ collapse.click();const idempotentCollapse=frames.every(f=>f.hidden);folds[2].click();const individual=frames[0].hidden&&frames[1].hidden&&!frames[2].hidden;
+ expand.focus();expand.click();await pause(100);expand.click();const expanded=frames.every(f=>!f.hidden)&&folds.every(b=>b.getAttribute('aria-expanded')==='true'&&b.textContent==='Collapse'),expandFocus=d.activeElement===expand;
+ const retained=frames.every((f,i)=>boxes[i]===f.contentDocument.querySelector('.vd-slot textarea')&&notes[i]===f.verdictControls.querySelector('.vd-general')&&bars[i]===f.verdictControls&&boxes[i].value==='Answer '+i&&notes[i].value==='Note '+i);
+ release();await pause(200);last.contentWindow.fetch=real;
+ const pick=d.querySelector('[aria-label="Jump to review"]');pick.value=last.closest('article').dataset.review;pick.dispatchEvent(new Event('change'));await pause(100);folds[2].focus();const finalBefore={scroll:w.scrollY,top:folds[2].getBoundingClientRect().top};folds[2].click();await pause(100);const finalCollapsed=w.scrollY===finalBefore.scroll&&Math.abs(folds[2].getBoundingClientRect().top-finalBefore.top)<1;folds[2].click();await pause(100);const finalExpanded=w.scrollY===finalBefore.scroll&&Math.abs(folds[2].getBoundingClientRect().top-finalBefore.top)<1;
+ document.body.dataset.result=JSON.stringify({controls:true,hiddenInList,top:feed.firstElementChild===toolbar&&toolbar.getBoundingClientRect().bottom<=feed.querySelector('.vd-feed-post').getBoundingClientRect().top,labels:[collapse.textContent,expand.textContent],collapsed,collapseStable,idempotentCollapse,individual,expanded,expandFocus,retained,finalCollapsed,finalExpanded,overflow:d.documentElement.scrollWidth>w.innerWidth,posts:feed.querySelectorAll('.vd-feed-post').length});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("width", [1366, 375])
+def test_feed_bulk_controls_preserve_posts_drafts_focus_and_final_scroll(server, tmp_path, width):
+    base, _ = server
+    page = b'<html><body><main style="min-height:1100px"><p data-item="q" data-input="Answer" data-choices="Yes|No">Synthetic question</p></main></body></html>'
+    reviews = [publish(base, title=f"Synthetic {i}", files={"index.html": page}) for i in range(3)]
+    driver = publish(
+        base,
+        files={
+            "index.html": BULK_FEED_DRIVER.replace(b"BASE", base.encode()).replace(
+                b"WIDTH", str(width).encode()
+            )
+        },
+    )
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 5000)
+    assert result.get("controls"), result
+    assert result["hiddenInList"] and result["top"] and not result["overflow"], result
+    assert result["labels"] == ["Collapse all", "Expand all"]
+    assert all(
+        result[k]
+        for k in [
+            "collapsed",
+            "collapseStable",
+            "idempotentCollapse",
+            "individual",
+            "expanded",
+            "expandFocus",
+            "retained",
+            "finalCollapsed",
+            "finalExpanded",
+        ]
+    ), result
+    assert result["posts"] == 3
+    for i, review in enumerate(reviews):
+        state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
+        assert state["status"] == "open"
+        assert state["answers"]["q"]["text"] == f"Answer {i}"
+        assert state["general"] == f"Note {i}"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_empty_feed_bulk_controls_are_disabled(server, tmp_path):
+    base, _ = server
+    page = rb"""<html><body><iframe src="BASE/"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+(async()=>{while(!document.querySelector('iframe').contentDocument?.querySelector('[data-view=feed]'))await new Promise(r=>setTimeout(r,30));const d=document.querySelector('iframe').contentDocument;d.querySelector('[data-view=feed]').click();document.body.dataset.result=JSON.stringify({buttons:[...d.querySelectorAll('.vd-feed-actions button')].map(b=>({disabled:b.disabled,type:b.type,controls:b.getAttribute('aria-controls')})),posts:d.querySelectorAll('.vd-feed-post').length})})()</script></body></html>"""
+    driver = publish(base, files={"index.html": page.replace(b"BASE", base.encode())})
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 2000)
+    assert len(result["buttons"]) == 2, result
+    assert all(
+        b == {"disabled": True, "type": "button", "controls": "vd-feed"} for b in result["buttons"]
+    )
+    assert result["posts"] == 0

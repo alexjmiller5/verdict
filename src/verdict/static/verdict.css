@@ -121,6 +121,7 @@ body.vd-done .vd-slot button:not(.vd-note) { opacity: .7; }
 html:has(.vd-index) { overflow-y: scroll; }
 .vd-view-switch { display: flex; gap: .5rem; margin: 1rem 0 2rem; }
 .vd-view-switch [aria-pressed="true"] { background: var(--vd-accent); color: var(--vd-on-accent); }
+.vd-feed-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
 .vd-feed-post { margin: 0 0 4rem; padding-top: 1.5rem; border-top: 2px solid var(--vd-line); }
 .vd-feed-post h2 { font-size: 1.25rem; margin: 0 0 1rem; overflow-wrap: anywhere; }
 .vd-feed-frame { display: block; border: 0; width: 100%; min-height: 12rem; }

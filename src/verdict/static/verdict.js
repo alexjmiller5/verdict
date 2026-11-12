@@ -52,6 +52,17 @@
     const list = document.querySelector("#vd-list"), feed = document.querySelector("#vd-feed");
     document.body.classList.add("vd-index-page");
     let feedReady = false, feedFocus = null, activePost = null;
+    const bulk = el("div", { class: "vd-feed-actions", role: "group", "aria-label": "Fold feed reviews" },
+      ...["Collapse", "Expand"].map((label) => el("button", {
+        type: "button", "data-feed-fold": label.toLowerCase(), "aria-controls": "vd-feed",
+        onclick: () => {
+          const expanded = label === "Expand";
+          feed.querySelectorAll(".vd-post-toggle").forEach((button) => {
+            if ((button.getAttribute("aria-expanded") === "true") !== expanded) button.click();
+          });
+        }
+      }, `${label} all`)));
+    feed.prepend(bulk);
     const sidebar = el("aside", { class: "vd-feed-sidebar", "aria-label": "Current review", hidden: "" });
     const jump = el("select", { "aria-label": "Jump to review", class: "vd-feed-jump" });
     sidebar.append(jump); document.body.append(sidebar);
@@ -101,7 +112,11 @@
     addEventListener("resize", () => activate(activePost));
     sidebar.addEventListener("focusout", () => requestAnimationFrame(visiblePost));
     document.addEventListener("focusin", (event) => { if (sidebar.contains(event.target)) feedFocus = event.target; });
-    const emptyFeed = () => { feed.querySelector(".vd-feed-empty").hidden = !!feed.querySelector(".vd-feed-post"); };
+    const emptyFeed = () => {
+      const hasPosts = !!feed.querySelector(".vd-feed-post");
+      feed.querySelector(".vd-feed-empty").hidden = hasPosts;
+      bulk.querySelectorAll("button").forEach((button) => { button.disabled = !hasPosts; });
+    };
     index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
       const showFeed = button.dataset.view === "feed";
       if (showFeed) {
