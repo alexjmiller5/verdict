@@ -1604,3 +1604,141 @@ const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait
         b == {"disabled": True, "type": "button", "controls": "vd-feed"} for b in result["buttons"]
     )
     assert result["posts"] == 0
+
+
+TAB_SHORTCUT_PAGE = rb"""<html><body><main tabindex="0">Synthetic content</main><p data-item="q" data-input="Answer">Question</p><script>
+const realFetch=window.fetch;window.fetch=(u,o)=>realFetch(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{while(!document.querySelector('.vd-submit-action'))await pause(30);
+const answer=document.querySelector('.vd-slot textarea'),notes=document.querySelector('.vd-general');answer.value='Retained answer';answer.dispatchEvent(new Event('input'));notes.value='Retained note';notes.dispatchEvent(new Event('input'));
+const target='FOCUS'==='content'?document.querySelector('main'):'FOCUS'==='answer'?answer:notes;target.focus();
+const down=(node,repeat=false)=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,repeat,bubbles:true,cancelable:true})),up=node=>node.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
+const state=()=>realFetch('/api/reviews/'+location.pathname.split('/')[2]).then(r=>r.json());
+down(target);const dialog=document.querySelector('.vd-confirm');if(!dialog){document.body.dataset.result=JSON.stringify({opened:false});return;}
+const send=dialog.querySelector('.vd-primary');const indicators=[document.querySelector('.vd-submit-action'),send].map(b=>({keys:b.getAttribute('aria-keyshortcuts'),hint:getComputedStyle(b,'::after').content}));
+down(dialog);down(dialog,true);await pause(50);const heldSafe=!!document.querySelector('.vd-confirm')&&(await state()).status==='open';
+up(dialog);dialog.querySelector('button').click();const cancelled=!document.querySelector('.vd-confirm')&&(await state()).status==='open';
+down(target);const second=document.querySelector('.vd-confirm');up(second);down(second);await pause(600);const saved=await state();
+document.body.dataset.result=JSON.stringify({opened:true,heldSafe,cancelled,indicators,saved});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("focus", ["content", "answer", "notes"])
+def test_tab_shortcut_requires_two_deliberate_presses_and_shows_hints(server, tmp_path, focus):
+    base, _ = server
+    review = publish(
+        base, files={"index.html": TAB_SHORTCUT_PAGE.replace(b"FOCUS", focus.encode())}
+    )
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result.get("opened"), result
+    assert result["heldSafe"] and result["cancelled"], result
+    assert all(i["keys"] == "Meta+Enter" and "⌘↵" in i["hint"] for i in result["indicators"])
+    assert result["saved"]["status"] == "done"
+    assert result["saved"]["answers"]["q"]["text"] == "Retained answer"
+    assert result["saved"]["general"] == "Retained note"
+
+
+FEED_SHORTCUT_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+const realFetch=window.fetch;window.fetch=(u,o)=>realFetch(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);const d=outer.contentDocument;d.querySelector('[data-view=feed]').click();while(!d.querySelector('.vd-feed-frame')?.verdictControls)await pause(30);
+const frame=d.querySelector('.vd-feed-frame'),child=frame.contentDocument,notes=frame.verdictControls.querySelector('.vd-general'),answer=child.querySelector('.vd-slot textarea');answer.value='Feed answer';answer.dispatchEvent(new Event('input'));notes.value='Feed note';notes.dispatchEvent(new Event('input'));
+const target='FOCUS'==='index'?d.querySelector('h1'):'FOCUS'==='content'?child.querySelector('main'):notes;target.tabIndex=0;target.focus();const down=n=>n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true})),up=n=>n.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
+down(target);const dialog=d.querySelector('.vd-confirm');if(!dialog){document.body.dataset.result=JSON.stringify({opened:false});return;}down(dialog);await pause(50);const heldSafe=d.querySelectorAll('.vd-confirm').length===1&&d.querySelectorAll('.vd-feed-post').length===1;up(dialog);down(dialog);await pause(600);const saved=await realFetch('BASE/api/reviews/'+frame.src.split('/')[4]).then(r=>r.json());document.body.dataset.result=JSON.stringify({opened:true,heldSafe,posts:d.querySelectorAll('.vd-feed-post').length,saved});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("focus", ["index", "content", "sidebar"])
+def test_feed_tab_shortcut_routes_to_current_review_and_parent_confirmation(
+    server, tmp_path, focus
+):
+    base, _ = server
+    publish(
+        base,
+        files={
+            "index.html": b'<main tabindex="0">Synthetic review</main><p data-item="q" data-input="Answer">Question</p>'
+        },
+    )
+    driver = publish(
+        base,
+        files={
+            "index.html": FEED_SHORTCUT_DRIVER.replace(b"BASE", base.encode()).replace(
+                b"FOCUS", focus.encode()
+            )
+        },
+    )
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 3000)
+    assert result.get("opened") and result["heldSafe"], result
+    assert result["posts"] == 0 and result["saved"]["status"] == "done", result
+    assert result["saved"]["answers"]["q"]["text"] == "Feed answer"
+    assert result["saved"]["general"] == "Feed note"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("mode", ["delayed", "delayed-empty", "rejected"])
+def test_two_press_shortcut_keeps_save_order_and_retryable_answers(server, tmp_path, mode):
+    base, _ = server
+    page = SUBMIT_SAVE_PAGE.replace(b"MODE", mode.encode())
+    page = page.replace(
+        b" button('Send').click();",
+        b" document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));",
+        1,
+    )
+    page = page.replace(
+        b"if (button('Done')) { button('Done').click(); button('Send').click(); }",
+        b"if (button('Done')) { document.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true})); }",
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 6000)
+    assert result["before"]["status"] == "open" and result["activeAtDone"] == 0
+    assert (
+        result["retained"] == "Retain this answer"
+        and result["retainedComment"] == "Retain this note"
+    )
+    assert result["after"]["status"] == "done"
+    assert result["atDone"]["answers"]["q"]["text"] == "Retain this answer"
+    assert result["atDone"]["comments"][0]["text"] == "Retain this note"
+    assert result["atDone"]["general"] == (
+        "" if mode == "delayed-empty" else "Latest unsaved general"
+    )
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_note_shortcut_and_held_key_do_not_promote_note_save_to_done(server, tmp_path):
+    base, _ = server
+    page = TAB_SHORTCUT_PAGE.replace(b"FOCUS", b"content")
+    page = page.replace(
+        b"down(target);const dialog=",
+        b"document.querySelector('.vd-note').click();const editor=document.querySelector('.vd-sheet textarea');editor.value='Keyboard item note';down(editor);down(document.body);down(document.body,true);const noteSafe=!document.querySelector('.vd-sheet')&&!document.querySelector('.vd-confirm');up(document.body);down(target);const dialog=",
+        1,
+    )
+    page = page.replace(
+        b"{opened:true,heldSafe,cancelled,indicators,saved}",
+        b"{opened:true,noteSafe,heldSafe,cancelled,indicators,saved}",
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result.get("noteSafe") and result["heldSafe"], result
+    assert result["saved"]["status"] == "done"
+    assert result["saved"]["comments"][0]["text"] == "Keyboard item note"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+def test_report_shortcut_also_requires_confirmation_before_acknowledgement(server, tmp_path):
+    base, _ = server
+    page = (
+        TAB_SHORTCUT_PAGE.replace(b"FOCUS", b"content")
+        .replace(b'data-item="q" data-input="Answer"', b"")
+        .replace(
+            b"document.querySelector('.vd-slot textarea')", b"document.createElement('textarea')"
+        )
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result.get("opened") and result["heldSafe"] and result["cancelled"], result
+    assert result["saved"]["status"] == "done" and result["saved"]["answers"] == {}

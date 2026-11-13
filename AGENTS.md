@@ -68,8 +68,12 @@ alongside choices and nonblank text. General notes do not answer every item.
 Use `data-optional` for additional instructions and corrections. Such fields stay
 editable and save normally, but do not create unanswered warnings or inflate the
 required progress counter. A page containing only optional fields still has Done.
-Cmd+Enter saves an open note; in an answer or general-notes textarea it opens
-the Done confirmation. Plain Enter keeps inserting newlines.
+Cmd+Enter saves an open note. Elsewhere in an open review, including page
+content and the active review in Feed, the first press opens Done confirmation;
+a second press after releasing Enter activates Send. Held/repeated keydown
+events cannot skip the confirmation. Done/Got it and confirmation Send show
+⌘↵ hints and expose Meta+Enter accessibility shortcuts; collapsed icon rails
+hide the visual hint. Plain Enter keeps inserting newlines.
 Final submission waits for all pending and in-flight saves to be acknowledged.
 Controls are disabled during that submission so new edits cannot race its final save.
 A failed save keeps the review open, restores editable controls and retains edits for retry.

@@ -18,6 +18,7 @@
   let saveTimer = null;
   let commentMode = false;
   let finishing = false;
+  let submitHeld = false;
 
   const el = (tag, attrs = {}, ...children) => {
     const node = document.createElement(tag);
@@ -30,7 +31,7 @@
     return node;
   };
 
-  const confirmDialog = (title, details, label, action, cancelLabel = "Cancel") => {
+  const confirmDialog = (title, details, label, action, cancelLabel = "Cancel", shortcut = false) => {
     const dialogDocument = feedFrame ? window.parent.document : document;
     dialogDocument.querySelectorAll(".vd-confirm").forEach((dialog) => { dialog.close(); dialog.remove(); });
     const dialog = el("dialog", { class: "vd-sheet vd-confirm", "aria-labelledby": "vd-confirm-title" });
@@ -41,8 +42,9 @@
       ...details,
       el("div", { class: "vd-row" },
         el("button", { type: "button", onclick: dismiss, autofocus: "" }, cancelLabel),
-        el("button", { type: "button", class: "vd-primary", onclick: () => { dismiss(); action(); } }, label))
+        el("button", { type: "button", class: `vd-primary${shortcut ? " vd-send-shortcut" : ""}`, ...(shortcut ? { "aria-keyshortcuts": "Meta+Enter", "aria-label": label } : {}), onclick: () => { dismiss(); action(); } }, label))
     );
+    if (shortcut) { dialog.dataset.reviewSend = id; dialog.addEventListener("keydown", reviewKey); }
     dialogDocument.body.append(dialog);
     dialog.showModal();
   };
@@ -112,6 +114,13 @@
     addEventListener("resize", () => activate(activePost));
     sidebar.addEventListener("focusout", () => requestAnimationFrame(visiblePost));
     document.addEventListener("focusin", (event) => { if (sidebar.contains(event.target)) feedFocus = event.target; });
+    document.addEventListener("keydown", (e) => {
+      if (feed.hidden || document.querySelector(".vd-confirm[open]")) return;
+      activePost?.querySelector("iframe").verdictKey?.(e);
+    });
+    document.addEventListener("keyup", (e) => {
+      feed.querySelectorAll("iframe").forEach((frame) => frame.verdictKeyUp?.(e));
+    });
     const emptyFeed = () => {
       const hasPosts = !!feed.querySelector(".vd-feed-post");
       feed.querySelector(".vd-feed-empty").hidden = hasPosts;
@@ -419,7 +428,12 @@
       render();
     };
     box.addEventListener("keydown", (e) => {
-      if (submitKey(e)) { e.preventDefault(); save(); }
+      if (submitKey(e)) {
+        e.preventDefault();
+        if (e.repeat || submitHeld) return;
+        submitHeld = true;
+        save();
+      }
     });
     sheet.append(
       el("div", { class: "vd-sheet-head" }, `Note on: ${snippet || target.tagName}`),
@@ -491,7 +505,7 @@
     details.push(el("div", {}, listening()
       ? "The agent is listening and gets them right away."
       : "No agent is listening right now; it reads them the next time it checks."));
-    confirmDialog("Send your answers to the agent?", details, "Send", finish, "Keep editing");
+    confirmDialog("Send your answers to the agent?", details, "Send", finish, "Keep editing", true);
   };
   const finish = async () => {
     if (finishing) return;
@@ -574,8 +588,8 @@
         closed ? "" : done
           ? el("button", { type: "button", class: "vd-reopen-action", "aria-label": "Reopen", title: "Reopen review", onclick: () => put({ status: "open" }) }, "reopen")
           : questions.length
-            ? el("button", { type: "button", class: "vd-primary vd-submit-action", "aria-label": "Done", title: "Send answers", onclick: confirmDone }, "Done")
-            : el("button", { type: "button", class: "vd-primary vd-submit-action", "aria-label": "Got it", title: "Mark report read", onclick: finish }, "Got it"),
+            ? el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Meta+Enter", "aria-label": "Done", title: "Send answers", onclick: confirmDone }, "Done")
+            : el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Meta+Enter", "aria-label": "Got it", title: "Mark report read", onclick: finish }, "Got it"),
         done ? el("button", { type: "button", class: "vd-close-tab", "aria-label": "Close tab", title: "Close tab", onclick: () => window.close() }, "Close tab") : ""
       ), ...(done ? [el("div", { class: "vd-sent-help", role: "status" }, "Sent. You can close this tab if your browser keeps it open.")] : [])]
     );
@@ -599,6 +613,25 @@
     [...document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-section-accept, .vd-pin"), ...bar.querySelectorAll("button, textarea")].forEach((control) => { control.disabled = finishing; });
   };
 
+  const releaseSubmitKey = (e) => { if (e.key === "Enter") submitHeld = false; };
+  const reviewKey = (e) => {
+    if (e.defaultPrevented) return;
+    if (submitKey(e) && state?.status === "open" && !finishing) {
+      e.preventDefault();
+      if (e.repeat || submitHeld) return;
+      submitHeld = true;
+      const host = feedFrame ? window.parent.document : document;
+      const confirmation = host.querySelector(".vd-confirm[open]");
+      if (confirmation) {
+        if (confirmation.dataset.reviewSend === id) confirmation.querySelector(".vd-primary").click();
+      } else if (!document.querySelector(".vd-sheet")) confirmDone();
+    }
+    if (e.ctrlKey && e.altKey && !e.metaKey && e.code === "KeyC") {
+      e.preventDefault();
+      toggleCommentMode();
+    }
+  };
+
   const boot = async () => {
     const r = await fetch(api);
     if (!r.ok) {
@@ -619,19 +652,14 @@
     };
     document.addEventListener("click", onPageClick, true);
     // Ctrl+Option+C toggles comment mode; e.code, since Option changes e.key
-    const reviewKey = (e) => {
-      if (submitKey(e) && e.target.matches(".vd-slot textarea, .vd-general") && state.status === "open") {
-        e.preventDefault();
-        confirmDone();
-      }
-      if (e.ctrlKey && e.altKey && !e.metaKey && e.code === "KeyC") {
-        e.preventDefault();
-        toggleCommentMode();
-      }
-    };
     document.addEventListener("keydown", reviewKey);
+    document.addEventListener("keyup", releaseSubmitKey);
     render();
-    if (feedFrame) bar.addEventListener("keydown", reviewKey);
+    if (feedFrame) {
+      bar.addEventListener("keydown", reviewKey);
+      feedFrame.verdictKey = reviewKey;
+      feedFrame.verdictKeyUp = releaseSubmitKey;
+    }
     // keep in sync when the agent closes it or another device edits. Only a
     // visible tab long-polls: browsers open six connections per host, so polls
     // parked in background tabs would stall every save and page load.
