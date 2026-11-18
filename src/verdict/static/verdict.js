@@ -42,7 +42,7 @@
       ...details,
       el("div", { class: "vd-row" },
         el("button", { type: "button", onclick: dismiss, autofocus: "" }, cancelLabel),
-        el("button", { type: "button", class: `vd-primary${shortcut ? " vd-send-shortcut" : ""}`, ...(shortcut ? { "aria-keyshortcuts": "Meta+Enter", "aria-label": label } : {}), onclick: () => { dismiss(); action(); } }, label))
+        el("button", { type: "button", class: `vd-primary${shortcut ? " vd-send-shortcut" : ""}`, ...(shortcut ? { "aria-keyshortcuts": "Enter Meta+Enter", "aria-label": label } : {}), onclick: () => { dismiss(); action(); } }, label))
     );
     if (shortcut) { dialog.dataset.reviewSend = id; dialog.addEventListener("keydown", reviewKey); }
     dialogDocument.body.append(dialog);
@@ -588,8 +588,8 @@
         closed ? "" : done
           ? el("button", { type: "button", class: "vd-reopen-action", "aria-label": "Reopen", title: "Reopen review", onclick: () => put({ status: "open" }) }, "reopen")
           : questions.length
-            ? el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Meta+Enter", "aria-label": "Done", title: "Send answers", onclick: confirmDone }, "Done")
-            : el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Meta+Enter", "aria-label": "Got it", title: "Mark report read", onclick: finish }, "Got it"),
+            ? el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Enter Meta+Enter", "aria-label": "Done", title: "Send answers", onclick: confirmDone }, "Done")
+            : el("button", { type: "button", class: "vd-primary vd-submit-action vd-send-shortcut", "aria-keyshortcuts": "Enter Meta+Enter", "aria-label": "Got it", title: "Mark report read", onclick: finish }, "Got it"),
         done ? el("button", { type: "button", class: "vd-close-tab", "aria-label": "Close tab", title: "Close tab", onclick: () => window.close() }, "Close tab") : ""
       ), ...(done ? [el("div", { class: "vd-sent-help", role: "status" }, "Sent. You can close this tab if your browser keeps it open.")] : [])]
     );
@@ -615,8 +615,8 @@
 
   const releaseSubmitKey = (e) => { if (e.key === "Enter") submitHeld = false; };
   const reviewKey = (e) => {
-    if (e.defaultPrevented) return;
-    if (submitKey(e) && state?.status === "open" && !finishing) {
+    if (e.defaultPrevented || e.target.closest?.(".vd-sheet:not(.vd-confirm)")) return;
+    if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing && state?.status === "open" && !finishing) {
       e.preventDefault();
       if (e.repeat || submitHeld) return;
       submitHeld = true;
@@ -624,7 +624,10 @@
       const confirmation = host.querySelector(".vd-confirm[open]");
       if (confirmation) {
         if (confirmation.dataset.reviewSend === id) confirmation.querySelector(".vd-primary").click();
-      } else if (!document.querySelector(".vd-sheet")) confirmDone();
+      } else if (!document.querySelector(".vd-sheet")) {
+        if (e.metaKey) finish();
+        else confirmDone();
+      }
     }
     if (e.ctrlKey && e.altKey && !e.metaKey && e.code === "KeyC") {
       e.preventDefault();

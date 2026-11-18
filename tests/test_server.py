@@ -621,21 +621,27 @@ def test_done_counts_notes_and_nonblank_text(server, tmp_path, action, expected)
 
 @pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
 @pytest.mark.parametrize("selector", [".vd-slot textarea", ".vd-general", ".vd-sheet textarea"])
-def test_cmd_enter_submits_text_with_explicit_done_confirmation(server, tmp_path, selector):
+def test_enter_confirmation_and_command_direct_send_preserve_note_editing(
+    server, tmp_path, selector
+):
     base, _ = server
     action = """
     const selector = SELECTOR;
     if (selector === '.vd-sheet textarea') document.querySelector('.vd-note').click();
     const box = document.querySelector(selector);
     box.focus(); box.value = 'Keyboard answer'; box.dispatchEvent(new Event('input'));
-    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', shiftKey:true, bubbles:true, cancelable:true}));
     const plainEnter = !document.querySelector('.vd-confirm');
     box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, isComposing:true, bubbles:true, cancelable:true}));
     const composing = !document.querySelector('.vd-confirm');
+    box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+    const enterPrompt = !!document.querySelector('.vd-confirm');
+    document.querySelector('.vd-confirm button')?.click();
+    document.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter',bubbles:true}));
     box.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, bubbles:true, cancelable:true}));
     await pause(900);
     document.body.dataset.result = JSON.stringify({
-      plainEnter, composing, confirmation:!!document.querySelector('.vd-confirm'),
+      plainEnter, composing, enterPrompt, confirmation:!!document.querySelector('.vd-confirm'),
       noteDialog:!!document.querySelector('.vd-sheet:not(.vd-confirm)')
     });
     """.replace("SELECTOR", json.dumps(selector))
@@ -647,10 +653,11 @@ def test_cmd_enter_submits_text_with_explicit_done_confirmation(server, tmp_path
     review = publish(base, files={"index.html": page})
     result = browser_result(review["url"], tmp_path, 5000)
     assert result["plainEnter"] and result["composing"]
-    assert result["confirmation"] is (selector != ".vd-sheet textarea")
+    assert result["enterPrompt"] is (selector != ".vd-sheet textarea")
+    assert not result["confirmation"]
     assert not result["noteDialog"]
     state = httpx.get(f"{base}/api/reviews/{review['id']}").json()
-    assert state["status"] == "open"
+    assert state["status"] == ("open" if selector == ".vd-sheet textarea" else "done")
     if selector == ".vd-sheet textarea":
         assert state["comments"][0]["text"] == "Keyboard answer"
     elif selector == ".vd-general":
@@ -695,7 +702,6 @@ const read = async () => (await realFetch(location.pathname.replace('/r/', '/api
  const general = document.querySelector('.vd-general');
  if (mode !== 'delayed-empty') { general.value = 'Latest unsaved general'; general.dispatchEvent(new Event('input')); }
  general.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, bubbles:true}));
- button('Send').click();
  await pause(100);
  const before = await read();
  const retained = document.querySelector('.vd-slot textarea').value;
@@ -1032,7 +1038,7 @@ def test_ordinary_review_tab_retains_honest_sent_and_close_fallback(server, tmp_
     )
     source = source.replace(
         b"done.click();document.querySelector('.vd-confirm .vd-primary').click();",
-        b"document.querySelector('.vd-pane-toggle').click();box.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true}));document.querySelector('.vd-confirm .vd-primary').click();",
+        b"document.querySelector('.vd-pane-toggle').click();box.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true}));",
     )
     source = source.replace(
         b"closeButton:!!document.querySelector('.vd-close-tab')",
@@ -1612,7 +1618,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{while(!document.querySelector('.vd-submit-action'))await pause(30);
 const answer=document.querySelector('.vd-slot textarea'),notes=document.querySelector('.vd-general');answer.value='Retained answer';answer.dispatchEvent(new Event('input'));notes.value='Retained note';notes.dispatchEvent(new Event('input'));
 const target='FOCUS'==='content'?document.querySelector('main'):'FOCUS'==='answer'?answer:notes;target.focus();
-const down=(node,repeat=false)=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,repeat,bubbles:true,cancelable:true})),up=node=>node.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
+const down=(node,repeat=false)=>node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:false,repeat,bubbles:true,cancelable:true})),up=node=>node.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
 const state=()=>realFetch('/api/reviews/'+location.pathname.split('/')[2]).then(r=>r.json());
 down(target);const dialog=document.querySelector('.vd-confirm');if(!dialog){document.body.dataset.result=JSON.stringify({opened:false});return;}
 const send=dialog.querySelector('.vd-primary');const indicators=[document.querySelector('.vd-submit-action'),send].map(b=>({keys:b.getAttribute('aria-keyshortcuts'),hint:getComputedStyle(b,'::after').content}));
@@ -1634,7 +1640,10 @@ def test_tab_shortcut_requires_two_deliberate_presses_and_shows_hints(server, tm
     result = browser_result(review["url"], tmp_path, 3000)
     assert result.get("opened"), result
     assert result["heldSafe"] and result["cancelled"], result
-    assert all(i["keys"] == "Meta+Enter" and "⌘↵" in i["hint"] for i in result["indicators"])
+    assert all(
+        i["keys"] == "Enter Meta+Enter" and "↵" in i["hint"] and "⌘" not in i["hint"]
+        for i in result["indicators"]
+    )
     assert result["saved"]["status"] == "done"
     assert result["saved"]["answers"]["q"]["text"] == "Retained answer"
     assert result["saved"]["general"] == "Retained note"
@@ -1645,7 +1654,7 @@ const realFetch=window.fetch;window.fetch=(u,o)=>realFetch(String(u).replace(/wa
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);const d=outer.contentDocument;d.querySelector('[data-view=feed]').click();while(!d.querySelector('.vd-feed-frame')?.verdictControls)await pause(30);
 const frame=d.querySelector('.vd-feed-frame'),child=frame.contentDocument,notes=frame.verdictControls.querySelector('.vd-general'),answer=child.querySelector('.vd-slot textarea');answer.value='Feed answer';answer.dispatchEvent(new Event('input'));notes.value='Feed note';notes.dispatchEvent(new Event('input'));
-const target='FOCUS'==='index'?d.querySelector('h1'):'FOCUS'==='content'?child.querySelector('main'):notes;target.tabIndex=0;target.focus();const down=n=>n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true})),up=n=>n.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
+const target='FOCUS'==='index'?d.querySelector('h1'):'FOCUS'==='content'?child.querySelector('main'):notes;target.tabIndex=0;target.focus();const down=n=>n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:false,bubbles:true,cancelable:true})),up=n=>n.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',metaKey:true,bubbles:true}));
 down(target);const dialog=d.querySelector('.vd-confirm');if(!dialog){document.body.dataset.result=JSON.stringify({opened:false});return;}down(dialog);await pause(50);const heldSafe=d.querySelectorAll('.vd-confirm').length===1&&d.querySelectorAll('.vd-feed-post').length===1;up(dialog);down(dialog);await pause(600);const saved=await realFetch('BASE/api/reviews/'+frame.src.split('/')[4]).then(r=>r.json());document.body.dataset.result=JSON.stringify({opened:true,heldSafe,posts:d.querySelectorAll('.vd-feed-post').length,saved});
 })().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
 </script></body></html>"""
@@ -1685,13 +1694,12 @@ def test_two_press_shortcut_keeps_save_order_and_retryable_answers(server, tmp_p
     base, _ = server
     page = SUBMIT_SAVE_PAGE.replace(b"MODE", mode.encode())
     page = page.replace(
-        b" button('Send').click();",
-        b" document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));",
-        1,
+        b" general.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', metaKey:true, bubbles:true}));",
+        b" general.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));",
     )
     page = page.replace(
         b"if (button('Done')) { button('Done').click(); button('Send').click(); }",
-        b"if (button('Done')) { document.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true})); }",
+        b"if (button('Done')) { document.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));document.querySelector('.vd-confirm').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})); }",
     )
     review = publish(base, files={"index.html": page})
     result = browser_result(review["url"], tmp_path, 6000)
@@ -1714,7 +1722,7 @@ def test_note_shortcut_and_held_key_do_not_promote_note_save_to_done(server, tmp
     page = TAB_SHORTCUT_PAGE.replace(b"FOCUS", b"content")
     page = page.replace(
         b"down(target);const dialog=",
-        b"document.querySelector('.vd-note').click();const editor=document.querySelector('.vd-sheet textarea');editor.value='Keyboard item note';down(editor);down(document.body);down(document.body,true);const noteSafe=!document.querySelector('.vd-sheet')&&!document.querySelector('.vd-confirm');up(document.body);down(target);const dialog=",
+        b"document.querySelector('.vd-note').click();const editor=document.querySelector('.vd-sheet textarea');editor.value='Keyboard item note';editor.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));down(document.body);down(document.body,true);const noteSafe=!document.querySelector('.vd-sheet')&&!document.querySelector('.vd-confirm');up(document.body);down(target);const dialog=",
         1,
     )
     page = page.replace(
@@ -1742,3 +1750,52 @@ def test_report_shortcut_also_requires_confirmation_before_acknowledgement(serve
     result = browser_result(review["url"], tmp_path, 3000)
     assert result.get("opened") and result["heldSafe"] and result["cancelled"], result
     assert result["saved"]["status"] == "done" and result["saved"]["answers"] == {}
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("focus", ["content", "answer", "notes"])
+def test_command_enter_sends_directly_without_opening_confirmation(server, tmp_path, focus):
+    base, _ = server
+    page = (
+        TAB_SHORTCUT_PAGE.replace(b"FOCUS", focus.encode()).split(b"down(target);const dialog=")[0]
+        + rb"""
+let prompts=0;const show=HTMLDialogElement.prototype.showModal;HTMLDialogElement.prototype.showModal=function(){prompts++;return show.call(this)};
+target.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));target.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,repeat:true,bubbles:true,cancelable:true}));up(document);await pause(700);document.body.dataset.result=JSON.stringify({prompts,saved:await state()});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));</script></body></html>"""
+    )
+    review = publish(base, files={"index.html": page})
+    result = browser_result(review["url"], tmp_path, 3000)
+    assert result.get("prompts") == 0, result
+    assert result["saved"]["status"] == "done", result
+    assert result["saved"]["answers"]["q"]["text"] == "Retained answer"
+    assert result["saved"]["general"] == "Retained note"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("focus", ["index", "content", "sidebar"])
+def test_feed_command_enter_sends_current_review_directly(server, tmp_path, focus):
+    base, _ = server
+    publish(
+        base,
+        files={
+            "index.html": b'<main tabindex="0">Synthetic review</main><p data-item="q" data-input="Answer">Question</p>'
+        },
+    )
+    page = (
+        FEED_SHORTCUT_DRIVER.replace(b"BASE", base.encode())
+        .replace(b"FOCUS", focus.encode())
+        .split(b"down(target);const dialog=")[0]
+        + rb"""
+let prompts=0;const show=d.defaultView.HTMLDialogElement.prototype.showModal;d.defaultView.HTMLDialogElement.prototype.showModal=function(){prompts++;return show.call(this)};
+target.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));up(d);await pause(600);const saved=await realFetch('BASE/api/reviews/'+frame.src.split('/')[4]).then(r=>r.json());document.body.dataset.result=JSON.stringify({prompts,posts:d.querySelectorAll('.vd-feed-post').length,saved});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));</script></body></html>""".replace(
+            b"BASE", base.encode()
+        )
+    )
+    driver = publish(base, files={"index.html": page})
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 3000)
+    assert result.get("prompts") == 0 and result["posts"] == 0, result
+    assert result["saved"]["status"] == "done"
+    assert result["saved"]["general"] == "Feed note"
+    assert result["saved"]["answers"]["q"]["text"] == "Feed answer"

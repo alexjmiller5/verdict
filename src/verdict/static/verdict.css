@@ -167,5 +167,5 @@ html:has(.vd-index) { overflow-y: scroll; }
 /* Keep a collapsed final review's header in place when its content no longer fills the viewport. */
 #vd-feed:has(.vd-post-toggle[aria-expanded="false"]) { padding-bottom: 100dvh; }
 
-.vd-send-shortcut::after { content: "⌘↵"; margin-left: .6em; opacity: .7; font-size: .85em; }
+.vd-send-shortcut::after { content: "↵"; margin-left: .6em; opacity: .7; font-size: .85em; }
 .vd-collapsed .vd-send-shortcut::after { display: none; }
