@@ -41,7 +41,7 @@ design: the whole agent contract is the `verdict` CLI.
 | `data-choices="a\|b\|c"` | pick one; `data-default` names the recommendation (else the first) |
 | `data-input="placeholder"` | free-text answer |
 | `data-optional` | supplemental answer excluded from required counts and unanswered warnings; still saved |
-| `data-section="name"` | gets an "accept this section's recommendations" button when it holds choices |
+| `data-section="name"` | groups page content without adding review controls |
 
 Anything else can still be annotated: comment mode (the bar's toggle, or
 Ctrl+Option+C) lets the reviewer tap any element and type a note; the note carries a CSS selector, a text snippet and
@@ -62,7 +62,7 @@ done) in place of Done.
 
 Done sends only what the reviewer touched: an untouched item is absent from
 `answers` (unanswered). `defaulted: true` means the reviewer took the
-recommendation with an accept button (section or page-wide), which is a
+recommendation with an page-wide accept button, which is a
 decision. Nonblank item notes and element comments within an item count as answers,
 alongside choices and nonblank text. General notes do not answer every item.
 Use `data-optional` for additional instructions and corrections. Such fields stay

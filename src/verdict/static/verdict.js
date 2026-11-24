@@ -4,7 +4,6 @@
  *   [data-item="id"]                   something to answer or annotate
  *   [data-choices="a|b|c"]             pick one; data-default picks the recommendation (else the first)
  *   [data-input]                       free text answer
- *   [data-section="name"]              gets an "accept recommendations" button for its items
  * Everything else is annotatable in comment mode (tap any element).
  * Done sends only what the reviewer touched; the accept buttons are the way to
  * take a recommendation. A page with nothing to answer gets "Got it" instead.
@@ -618,20 +617,13 @@
 
   const render = () => {
     items().forEach(slotFor);
-    document.querySelectorAll("[data-section]").forEach((section) => {
-      let btn = section.querySelector(":scope > .vd-section-accept");
-      if (!btn && hasChoices(section)) {
-        btn = el("button", { type: "button", class: "vd-section-accept", onclick: () => acceptAll(section) }, "accept this section's recommendations");
-        section.append(btn);
-      }
-    });
     renderPins();
     renderBar();
     document.body.classList.toggle("vd-done", state.status !== "open");
     if (feedFrame && state.status !== "open" && !finishing && !saving && !Object.keys(pending).length) {
       feedFrame.dispatchEvent(new CustomEvent("verdict:completed", { detail: { status: state.status } }));
     }
-    [...document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-section-accept, .vd-pin"), ...bar.querySelectorAll("button, textarea")].forEach((control) => { control.disabled = finishing; });
+    [...document.querySelectorAll(".vd-slot button, .vd-slot textarea, .vd-pin"), ...bar.querySelectorAll("button, textarea")].forEach((control) => { control.disabled = finishing; });
   };
 
   const releaseSubmitKey = (e) => { if (e.key === "Enter") submitHeld = false; };

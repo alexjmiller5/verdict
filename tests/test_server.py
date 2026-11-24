@@ -450,7 +450,7 @@ def test_replacing_files_rejects_bad_input_and_changes_nothing(server):
 
 # Done sends only what the reviewer touched: an untouched choice stays
 # unanswered, an accept button records the recommendation as defaulted, and
-# only sections with choices get an accept button.
+# sections never get their own accept button.
 UNTOUCHED_PAGE = b"""<html><body>
 <section data-section="s1"><p data-item="a" data-choices="yes|no">A</p>
 <p data-item="b" data-choices="yes|no">B</p></section>
@@ -466,7 +466,7 @@ const button = (text, scope = document) => [...scope.querySelectorAll("button")]
   while (!button("Done")) await pause(50);
   const result = { sectionButtons: document.querySelectorAll(".vd-section-accept").length };
   button("no", document.querySelector('[data-for="a"]')).click();
-  document.querySelector('[data-section="s2"] .vd-section-accept').click();
+  button("drop", document.querySelector('[data-for="c"]')).click();
   await pause(1000);
   button("Done").click();
   await pause(300);
@@ -485,11 +485,11 @@ def test_done_leaves_untouched_items_unanswered(server, tmp_path):
     base, _ = server
     review = publish(base, files={"index.html": UNTOUCHED_PAGE})
     result = browser_result(review["url"], tmp_path, 8000)
-    assert result["sectionButtons"] == 2
+    assert result["sectionButtons"] == 0
     assert result["status"] == "done"
     assert result["answers"] == {
         "a": {"choice": "no", "defaulted": False},
-        "c": {"choice": "drop", "defaulted": True},
+        "c": {"choice": "drop", "defaulted": False},
     }
 
 
