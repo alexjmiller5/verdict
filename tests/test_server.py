@@ -1799,3 +1799,38 @@ target.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbl
     assert result["saved"]["status"] == "done"
     assert result["saved"]["general"] == "Feed note"
     assert result["saved"]["answers"]["q"]["text"] == "Feed answer"
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("width", [1366, 375])
+def test_feed_does_not_leave_viewport_gap_after_folding(server, tmp_path, width):
+    base, _ = server
+    for i in range(3):
+        publish(
+            base,
+            title=f"Synthetic spacing {i}",
+            files={
+                "index.html": b'<html><body><main style="min-height:1100px">Synthetic content</main></body></html>'
+            },
+        )
+    driver = publish(
+        base,
+        files={
+            "index.html": rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
+const d=f.contentDocument,w=f.contentWindow;d.querySelector('[data-view=feed]').click();while(d.querySelectorAll('.vd-feed-frame').length!==3||[...d.querySelectorAll('.vd-feed-frame')].some(f=>!f.verdictControls))await pause(30);await pause(150);
+const feed=d.querySelector('#vd-feed'),folds=[...d.querySelectorAll('.vd-post-toggle')];const gap=()=>parseFloat(w.getComputedStyle(feed).paddingBottom);
+const initial=gap();folds[0].click();await pause(100);const middle=gap();folds[0].click();await pause(100);const expanded=gap();
+const last=folds.at(-1);last.scrollIntoView({block:'start'});await pause(100);const before=last.getBoundingClientRect().top;last.click();await pause(100);const stable=Math.abs(last.getBoundingClientRect().top-before)<1;
+w.dispatchEvent(new WheelEvent('wheel',{deltaY:600}));await pause(100);const afterReading=gap();last.click();await pause(100);const reexpanded=gap();last.scrollIntoView({block:'start'});await pause(100);last.click();await pause(100);folds[0].closest('article').querySelector('iframe').contentWindow.dispatchEvent(new WheelEvent('wheel',{deltaY:500}));await pause(100);const frameReading=gap();
+document.body.dataset.result=JSON.stringify({initial,middle,expanded,stable,afterReading,reexpanded,frameReading});})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script>""".replace(b"BASE", base.encode()).replace(b"WIDTH", str(width).encode())
+        },
+    )
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 5000)
+    assert result["stable"], result
+    for stage in ["initial", "middle", "expanded", "afterReading", "reexpanded", "frameReading"]:
+        assert result[stage] == 0, result

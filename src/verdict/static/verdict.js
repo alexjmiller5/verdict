@@ -54,6 +54,14 @@
     const list = document.querySelector("#vd-list"), feed = document.querySelector("#vd-feed");
     document.body.classList.add("vd-index-page");
     let feedReady = false, feedFocus = null, activePost = null;
+    const clearFoldSpace = () => { feed.style.paddingBottom = ""; };
+    // Keep the clicked header still only until the reader next navigates.
+    addEventListener("wheel", clearFoldSpace, { passive: true });
+    addEventListener("touchmove", clearFoldSpace, { passive: true });
+    addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)
+          && !event.target.closest("textarea,input,select,[contenteditable]")) clearFoldSpace();
+    });
     const bulk = el("div", { class: "vd-feed-actions", role: "group", "aria-label": "Fold feed reviews" },
       ...["Collapse", "Expand"].map((label) => el("button", {
         type: "button", "data-feed-fold": label.toLowerCase(), "aria-controls": "vd-feed",
@@ -105,6 +113,7 @@
       const post = [...feed.querySelectorAll(".vd-feed-post")].find((p) => p.dataset.review === jump.value);
       if (!post) return;
       post.querySelector("iframe").hidden = false;
+      clearFoldSpace();
       post.querySelector(".vd-post-toggle").setAttribute("aria-expanded", "true");
       post.querySelector(".vd-post-toggle").textContent = "Collapse";
       post.querySelector(".vd-post-toggle").setAttribute("aria-label", `Collapse ${post.querySelector("h2 a").textContent}`);
@@ -138,7 +147,14 @@
           const title = el("a", { href: link.getAttribute("href"), target: "_blank", rel: "noopener" }, link.textContent);
           const fold = el("button", { type: "button", class: "vd-post-toggle", "aria-label": `Collapse ${link.textContent}`, "aria-expanded": "true", "aria-controls": `vd-post-${row.dataset.review}`,
             onclick: () => {
+              const scroll = scrollY;
+              if (!frame.hidden) {
+                feed.style.paddingBottom = `${parseFloat(feed.style.paddingBottom || 0) + frame.getBoundingClientRect().height}px`;
+              }
               frame.hidden = !frame.hidden;
+              const padding = parseFloat(feed.style.paddingBottom || 0);
+              const naturalHeight = document.documentElement.scrollHeight - padding;
+              feed.style.paddingBottom = `${Math.max(0, scroll + innerHeight - naturalHeight)}px`;
               fold.setAttribute("aria-expanded", String(!frame.hidden));
               fold.textContent = frame.hidden ? "Expand" : "Collapse";
               fold.setAttribute("aria-label", `${frame.hidden ? "Expand" : "Collapse"} ${link.textContent}`);
@@ -155,6 +171,8 @@
           frame.addEventListener("load", () => {
             const body = frame.contentDocument?.body;
             if (!body) return;
+            frame.contentWindow.addEventListener("wheel", clearFoldSpace, { passive: true });
+            frame.contentWindow.addEventListener("touchmove", clearFoldSpace, { passive: true });
             frame.contentDocument.addEventListener("focusin", (e) => { feedFocus = e.target; activate(post); });
             frame.contentDocument.addEventListener("pointerdown", () => activate(post));
             const resize = () => {
@@ -187,6 +205,7 @@
           jump.append(el("option", { value: row.dataset.review }, link.textContent));
         });
       }
+      clearFoldSpace();
       list.hidden = showFeed; feed.hidden = !showFeed;
       index.classList.toggle("vd-feed-view", showFeed);
       document.body.classList.toggle("vd-feed-active", showFeed);

@@ -164,8 +164,6 @@ html:has(.vd-index) { overflow-y: scroll; }
   .vd-feed-sidebar { position: fixed; right: 0; top: 0; bottom: 0; width: 20rem; height: 100dvh; }
   .vd-feed-sidebar.vd-collapsed { width: 3.5rem; }
 }
-/* Keep a collapsed final review's header in place when its content no longer fills the viewport. */
-#vd-feed:has(.vd-post-toggle[aria-expanded="false"]) { padding-bottom: 100dvh; }
 
 .vd-send-shortcut::after { content: "↵"; margin-left: .6em; opacity: .7; font-size: .85em; }
 .vd-collapsed .vd-send-shortcut::after { display: none; }

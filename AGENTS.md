@@ -212,8 +212,9 @@ open post. Collapse all and Expand all at the top of Feed affect its current
 posts through the same individual toggles, without reloading frames or saving
 review state; both controls are disabled for an empty feed. Each post collapses
 in place without navigation or removing its frame
-or draft. Folded feeds retain trailing viewport space to prevent bottom-of-page
-scroll clamping.
+or draft. Collapsing reserves only the space required to prevent bottom-of-page scroll
+clamping; wheel, touch scrolling, or reading navigation keys clear that temporary
+space. Folding earlier posts does not add a trailing viewport of blank space.
 Frame sizing ignores zero-height measurements while hidden, retaining the prior
 reading height so expanding a folded post cannot clamp the viewport.
 Frames remain mounted when switching views; returning to Feed restores the last
