@@ -1269,7 +1269,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const [a,b,c]=frames(),ad=a.contentDocument,bd=b.contentDocument,cd=c.contentDocument;
  const input=(doc,selector,text)=>{if(doc.matches?.('.vd-bar')){let f=frames().find(f=>f.verdictControls===doc),pick=d.querySelector('[aria-label="Jump to review"]');pick.value=f.closest('article').dataset.review;pick.dispatchEvent(new Event('change'));}let e=doc.querySelector(selector);e.focus();e.value=text;e.dispatchEvent(new Event('input'));return e};
  const sameBox=input(ad,'.vd-slot textarea','First answer');input(bd,'.vd-slot textarea','Second answer');
- ad.querySelector('.vd-note').click();ad.querySelector('.vd-sheet textarea').value='First comment';[...ad.querySelectorAll('.vd-sheet button')].find(x=>x.textContent==='Add note').click();
+ ad.querySelector('.vd-note').click();d.querySelector('.vd-sheet textarea').value='First comment';[...d.querySelectorAll('.vd-sheet button')].find(x=>x.textContent==='Add note').click();
  input(a.verdictControls,'.vd-general','First general');input(b.verdictControls,'.vd-general','Second general');
  await pause(1000);
  const title=d.querySelector('.vd-feed-post h2 a').getAttribute('href');
@@ -1439,7 +1439,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  select(b);await pause(100);const second=title(),other=sidebar.querySelector('.vd-general');other.value='Second independent sidebar note';other.dispatchEvent(new Event('input'));
  const wide=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();await pause(100);const centered=d.querySelector('.vd-index').getBoundingClientRect().width;sidebar.querySelector('.vd-width-toggle').click();
  select(a);await pause(100);const retained=sidebar.querySelector('.vd-general')===box&&box.value==='First retained sidebar note';
- const fold=a.closest('article').querySelector('.vd-post-toggle');sidebar.querySelector('.vd-general').focus();fold.focus();const beforeFold={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const folded=a.hidden&&title()===first&&Math.abs(w.scrollY-beforeFold.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-beforeFold.top)<1;const collapsedPosition={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const expandedInPlace=!a.hidden&&Math.abs(w.scrollY-collapsedPosition.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-collapsedPosition.top)<1;select(a);await pause(100);
+ const fold=a.closest('article').querySelector('.vd-post-toggle');sidebar.querySelector('.vd-general').focus();fold.focus();await pause(100);const beforeFold={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const folded=a.hidden&&title()===first&&Math.abs(w.scrollY-beforeFold.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-beforeFold.top)<1;const collapsedPosition={scroll:w.scrollY,top:fold.getBoundingClientRect().top};fold.click();await pause(100);const expandedInPlace=!a.hidden&&Math.abs(w.scrollY-collapsedPosition.scroll)<1&&Math.abs(fold.getBoundingClientRect().top-collapsedPosition.top)<1;select(a);await pause(100);
  const scrollTarget=b.closest('article');box.blur();scrollTarget.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(150);const follows=title()===second,followScroll=w.scrollY,followTitle=title(),followBounds=b.closest('article').getBoundingClientRect().top;
  select(a);await pause(100);const full=d.querySelector('.vd-index').getBoundingClientRect(),rail=sidebar.getBoundingClientRect();const oldControls=a.verdictControls;a.contentWindow.location.reload();for(let i=0;i<60&&a.verdictControls===oldControls;i++)await pause(30);const reloadedControls=sidebar.querySelectorAll('.vd-bar').length;const mobilePlacement=sidebar.previousElementSibling===a.closest('article');let mobileStable=true;if(w.innerWidth<1024){sidebar.scrollIntoView({block:'start'});w.dispatchEvent(new Event('scroll'));await pause(100);mobileStable=title()===first;select(a);}
  const real=a.contentWindow.fetch.bind(a.contentWindow);let releaseDone;a.contentWindow.fetch=(u,o)=>o?.method==='PUT'&&JSON.parse(o.body).status==='done'?new Promise(resolve=>releaseDone=()=>resolve(real(u,o))):real(u,o);
@@ -1543,7 +1543,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
  let release,started;const saving=new Promise(r=>started=r),last=frames[2],real=last.contentWindow.fetch.bind(last.contentWindow);
  last.contentWindow.fetch=(u,o)=>o?.method==='PUT'?new Promise(resolve=>{release=()=>resolve(real(u,o));started()}):real(u,o);
  frames.forEach((f,i)=>{boxes[i].value='Answer '+i;boxes[i].dispatchEvent(new Event('input'));notes[i].value='Note '+i;notes[i].dispatchEvent(new Event('input'))});await saving;
- collapse.focus();const before={scroll:w.scrollY,top:toolbar.getBoundingClientRect().top};collapse.click();await pause(100);
+ collapse.focus();await pause(100);const before={scroll:w.scrollY,top:toolbar.getBoundingClientRect().top};collapse.click();await pause(100);
  const collapsed=frames.every(f=>f.hidden)&&folds.every(b=>b.getAttribute('aria-expanded')==='false'&&b.textContent==='Expand'),collapseStable=w.scrollY===before.scroll&&Math.abs(toolbar.getBoundingClientRect().top-before.top)<1&&d.activeElement===collapse;
  collapse.click();const idempotentCollapse=frames.every(f=>f.hidden);folds[2].click();const individual=frames[0].hidden&&frames[1].hidden&&!frames[2].hidden;
  expand.focus();expand.click();await pause(100);expand.click();const expanded=frames.every(f=>!f.hidden)&&folds.every(b=>b.getAttribute('aria-expanded')==='true'&&b.textContent==='Collapse'),expandFocus=d.activeElement===expand;
@@ -1834,3 +1834,44 @@ document.body.dataset.result=JSON.stringify({initial,middle,expanded,stable,afte
     assert result["stable"], result
     for stage in ["initial", "middle", "expanded", "afterReading", "reexpanded", "frameReading"]:
         assert result[stage] == 0, result
+
+
+@pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
+@pytest.mark.parametrize("width", [1366, 375])
+def test_feed_question_note_banner_uses_outer_viewport(server, tmp_path, width):
+    base, _ = server
+    review = publish(
+        base,
+        files={
+            "index.html": b'<html><body><div data-item="q" data-choices="Yes|No">Question</div><div style="height:2400px"></div></body></html>'
+        },
+    )
+    driver_html = b"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:700px"></iframe><script>
+const realFetch=window.fetch;window.fetch=(url,opts)=>realFetch(String(url).replace(/wait=\\d+/, "wait=0"),opts);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
+const d=outer.contentDocument,w=outer.contentWindow;d.querySelector('[data-view=feed]').click();while(!d.querySelector('.vd-feed-frame')?.verdictControls)await pause(30);
+const frame=d.querySelector('.vd-feed-frame'),child=frame.contentDocument;child.querySelector('.vd-note').click();await pause(30);
+const sheet=d.querySelector('.vd-sheet:not(.vd-confirm)');if(!sheet){document.body.dataset.result=JSON.stringify({banner:false});return;}
+const rect=sheet.getBoundingClientRect(),box=sheet.querySelector('textarea');const visible=rect.top>=0&&rect.bottom<=w.innerHeight+1,focused=d.activeElement===box;
+box.value='Question note';box.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));box.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',bubbles:true}));await pause(500);
+const saved=await fetch('BASE/api/reviews/REVIEW').then(r=>r.json());const removed=!d.querySelector('.vd-sheet');child.querySelector('.vd-pin').click();const edit=d.querySelector('.vd-sheet'),restored=edit.querySelector('textarea').value==='Question note';[...edit.querySelectorAll('button')].find(b=>b.textContent==='Cancel').click();
+document.body.dataset.result=JSON.stringify({banner:true,visible,focused,removed,restored,canceled:!d.querySelector('.vd-sheet'),saved});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));</script></body></html>"""
+    driver = publish(
+        base,
+        files={
+            "index.html": driver_html.replace(b"BASE", base.encode())
+            .replace(b"WIDTH", str(width).encode())
+            .replace(b"REVIEW", review["id"].encode())
+        },
+    )
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 6000)
+    assert result.get("banner"), result
+    assert all(result[k] for k in ("visible", "focused", "removed", "restored", "canceled")), (
+        json.dumps(result)
+    )
+    assert result["saved"]["status"] == "open"
+    assert result["saved"]["comments"][0]["item"] == "q"
+    assert result["saved"]["comments"][0]["text"] == "Question note"

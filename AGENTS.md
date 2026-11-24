@@ -204,6 +204,8 @@ Feed contains only open reviews, each with a title link opening its standalone
 page in a separate tab and its own same-origin iframe. Author styles, relative
 assets, selectors, comments and save queues remain isolated in that frame.
 One shared right sidebar shows the controls of the review currently in view.
+Question and element note editors open as a fixed bottom banner in the outer
+Feed window, retaining their originating review's save and keyboard handlers.
 On narrow screens it sits in normal flow after that active post.
 Its existing controls node moves between its frame and the sidebar, preserving
 listeners and the notes textarea. Focused notes keep their review active while

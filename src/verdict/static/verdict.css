@@ -80,6 +80,7 @@ body.vd-comment-mode *:hover:not(.vd-bar *):not(.vd-sheet *) { outline: 2px dash
   border-top: 2px solid var(--vd-accent); padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: .5rem;
   font: 14px system-ui, sans-serif; box-shadow: 0 -8px 24px rgba(0,0,0,.15); }
 .vd-sheet-head { color: var(--vd-muted); }
+.vd-sheet:not(.vd-confirm) { box-sizing: border-box; max-height: 100dvh; overflow-y: auto; }
 body.vd-done .vd-slot button:not(.vd-note) { opacity: .7; }
 
 .vd-confirm { inset: 0; margin: auto; width: min(26rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem);

@@ -424,6 +424,7 @@
 
   const compose = (target, itemKey = null, existingIndex = null) => {
     if (finishing) return;
+    const sheetDocument = feedFrame ? window.parent.document : document;
     const existing = existingIndex === null ? null : state.comments[existingIndex];
     const snippet = (target.innerText || target.alt || target.tagName).trim().slice(0, 120);
     const sheet = el("div", { class: "vd-sheet" });
@@ -454,6 +455,7 @@
         save();
       }
     });
+    box.addEventListener("keyup", releaseSubmitKey);
     sheet.append(
       el("div", { class: "vd-sheet-head" }, `Note on: ${snippet || target.tagName}`),
       box,
@@ -465,7 +467,7 @@
         existing ? el("button", { type: "button", class: "vd-danger", onclick: () => { box.value = ""; save(); } }, "Delete") : ""
       )
     );
-    document.body.append(sheet);
+    sheetDocument.body.append(sheet);
     box.focus();
   };
 
