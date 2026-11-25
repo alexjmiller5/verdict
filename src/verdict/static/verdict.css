@@ -147,7 +147,7 @@ html:has(.vd-index) { overflow-y: scroll; }
 .vd-feed-embedded .vd-bar.vd-collapsed { width: 3.5rem; }
 
 .vd-index-page { max-width: none; margin: 0; padding: 0; }
-.vd-index.vd-feed-view.vd-full-width { max-width: none; }
+.vd-index.vd-full-width { max-width: none; }
 .vd-index.vd-feed-view { box-sizing: border-box; }
 .vd-review:not(.vd-full-width) > :not(.vd-bar, .vd-sheet, .vd-home) { max-width: 44rem; margin-inline: auto; }
 .vd-post-toggle { float: right; margin-left: .5rem; font: 14px system-ui; }

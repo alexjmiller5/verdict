@@ -805,7 +805,7 @@ def test_done_confirmation_is_a_compact_centered_modal(server, tmp_path):
     assert abs(result["y"] - result["viewport"][1] / 2) < 2
 
 
-INDEX_CONTROLS_PAGE = rb"""<html><body><iframe src="/" style="width:360px;height:640px"></iframe>
+INDEX_CONTROLS_PAGE = rb"""<html><body><iframe src="/list" style="width:360px;height:640px"></iframe>
 <script>
 const realFetch=window.fetch;
 window.fetch=(url,opts)=>realFetch(String(url).replace(/wait=\d+/, 'wait=0'),opts);
@@ -1256,7 +1256,7 @@ def test_index_offers_list_and_open_review_feed(server):
     assert "Feed &lt;first&gt;" in page
 
 
-FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:1366px;height:900px"></iframe><script>
+FEED_DRIVER = rb"""<html><body><iframe src="BASE/list" style="width:1366px;height:900px"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
@@ -1331,7 +1331,7 @@ def test_feed_isolates_edits_and_filters_only_acknowledged_completion(server, tm
     assert httpx.get(f"{base}/api/reviews/{report['id']}").json()["status"] == "done"
 
 
-FEED_NAV_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+FEED_NAV_DRIVER = rb"""<html><body><iframe src="BASE/list"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
@@ -1369,7 +1369,7 @@ def test_feed_list_close_preserves_other_drafts_and_refuses_unsaved_close(server
     assert second_state["status"] == "closed" and second_state["general"] == "Retryable close note"
 
 
-FEED_REMOTE_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+FEED_REMOTE_DRIVER = rb"""<html><body><iframe src="BASE/list"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
@@ -1423,7 +1423,7 @@ def test_sidebar_action_icons_are_bundled_and_served(server, action):
     assert 'viewBox="0 0 24 24"' in response.text
 
 
-SHARED_FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+SHARED_FEED_DRIVER = rb"""<html><body><iframe src="BASE/list" style="width:WIDTHpx;height:800px"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
@@ -1529,7 +1529,7 @@ document.body.dataset.result=JSON.stringify({before,centered,label,retained:answ
     assert result["label"] == "Use full width layout"
 
 
-BULK_FEED_DRIVER = rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+BULK_FEED_DRIVER = rb"""<html><body><iframe src="BASE/list" style="width:WIDTHpx;height:800px"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{
@@ -1599,7 +1599,7 @@ def test_feed_bulk_controls_preserve_posts_drafts_focus_and_final_scroll(server,
 @pytest.mark.skipif(not CHROME, reason="needs Chrome or Chromium")
 def test_empty_feed_bulk_controls_are_disabled(server, tmp_path):
     base, _ = server
-    page = rb"""<html><body><iframe src="BASE/"></iframe><script>
+    page = rb"""<html><body><iframe src="BASE/list"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 (async()=>{while(!document.querySelector('iframe').contentDocument?.querySelector('[data-view=feed]'))await new Promise(r=>setTimeout(r,30));const d=document.querySelector('iframe').contentDocument;d.querySelector('[data-view=feed]').click();document.body.dataset.result=JSON.stringify({buttons:[...d.querySelectorAll('.vd-feed-actions button')].map(b=>({disabled:b.disabled,type:b.type,controls:b.getAttribute('aria-controls')})),posts:d.querySelectorAll('.vd-feed-post').length})})()</script></body></html>"""
     driver = publish(base, files={"index.html": page.replace(b"BASE", base.encode())})
@@ -1649,7 +1649,7 @@ def test_tab_shortcut_requires_two_deliberate_presses_and_shows_hints(server, tm
     assert result["saved"]["general"] == "Retained note"
 
 
-FEED_SHORTCUT_DRIVER = rb"""<html><body><iframe src="BASE/"></iframe><script>
+FEED_SHORTCUT_DRIVER = rb"""<html><body><iframe src="BASE/list"></iframe><script>
 const realFetch=window.fetch;window.fetch=(u,o)=>realFetch(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);const d=outer.contentDocument;d.querySelector('[data-view=feed]').click();while(!d.querySelector('.vd-feed-frame')?.verdictControls)await pause(30);
@@ -1816,7 +1816,7 @@ def test_feed_does_not_leave_viewport_gap_after_folding(server, tmp_path, width)
     driver = publish(
         base,
         files={
-            "index.html": rb"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:800px"></iframe><script>
+            "index.html": rb"""<html><body><iframe src="BASE/list" style="width:WIDTHpx;height:800px"></iframe><script>
 const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,'wait=0'),o);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{const f=document.querySelector('iframe');while(!f.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
@@ -1846,7 +1846,7 @@ def test_feed_question_note_banner_uses_outer_viewport(server, tmp_path, width):
             "index.html": b'<html><body><div data-item="q" data-choices="Yes|No">Question</div><div style="height:2400px"></div></body></html>'
         },
     )
-    driver_html = b"""<html><body><iframe src="BASE/" style="width:WIDTHpx;height:700px"></iframe><script>
+    driver_html = b"""<html><body><iframe src="BASE/list" style="width:WIDTHpx;height:700px"></iframe><script>
 const realFetch=window.fetch;window.fetch=(url,opts)=>realFetch(String(url).replace(/wait=\\d+/, "wait=0"),opts);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 (async()=>{const outer=document.querySelector('iframe');while(!outer.contentDocument?.querySelector('[data-view=feed]'))await pause(30);
@@ -1875,3 +1875,67 @@ document.body.dataset.result=JSON.stringify({banner:true,visible,focused,removed
     assert result["saved"]["status"] == "open"
     assert result["saved"]["comments"][0]["item"] == "q"
     assert result["saved"]["comments"][0]["text"] == "Question note"
+
+
+@pytest.mark.parametrize("path", ["/", "/feed", "/list"])
+def test_index_routes(server, path):
+    base, _ = server
+    response = httpx.get(base + path)
+    assert response.status_code == 200
+    assert 'id="vd-feed"' in response.text
+
+
+ROUTES_DRIVER = rb"""<html><body><iframe src="BASE/list" style="width:1366px;height:900px"></iframe><script>
+const original=window.fetch;window.fetch=(u,o)=>original(String(u).replace(/wait=\d+/,"wait=0"),o);
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const frame=document.querySelector('iframe');
+ const ready=async()=>{while(!frame.contentDocument?.querySelector('.vd-width-toggle')) await pause(25);};
+ await ready();
+ let d=frame.contentDocument,w=frame.contentWindow;
+ const listInitially=!d.querySelector('#vd-list').hidden&&d.querySelector('#vd-feed').hidden;
+ const toggle=d.querySelector('.vd-view-switch .vd-width-toggle');
+ const wide=d.querySelector('.vd-index').getBoundingClientRect().width;
+ toggle.click();
+ const centered=d.querySelector('.vd-index').getBoundingClientRect().width;
+ d.querySelector('[data-view=feed]').click();
+ const feedPath=w.location.pathname,feedVisible=!d.querySelector('#vd-feed').hidden;
+ w.location.reload();await pause(100);await ready();d=frame.contentDocument;w=frame.contentWindow;
+ const reloadedFeed=!d.querySelector('#vd-feed').hidden;
+ d.querySelector('[data-view=list]').click();
+ const listPath=w.location.pathname;
+ w.history.back();await pause(100);
+ const backFeed=!d.querySelector('#vd-feed').hidden;
+ w.history.forward();await pause(100);
+ const forwardList=!d.querySelector('#vd-list').hidden;
+ w.location.reload();await pause(100);await ready();d=frame.contentDocument;
+ const reloadedList=!d.querySelector('#vd-list').hidden;
+ const persistedCentered=!d.querySelector('.vd-index').classList.contains('vd-full-width');
+ frame.src='BASE/';await pause(100);await ready();d=frame.contentDocument;
+ document.body.dataset.result=JSON.stringify({listInitially,wide,centered,feedPath,feedVisible,reloadedFeed,listPath,backFeed,forwardList,reloadedList,persistedCentered,rootFeed:!d.querySelector('#vd-feed').hidden});
+})().catch(e=>document.body.dataset.result=JSON.stringify({error:String(e)}));
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not CHROME, reason="Chrome not installed")
+def test_index_route_reload_history_and_list_width(server, tmp_path):
+    base, _ = server
+    source = ROUTES_DRIVER.replace(b"BASE", base.encode())
+    driver = publish(base, files={"index.html": source})
+    httpx.post(f"{base}/api/reviews/{driver['id']}/close")
+    result = browser_result(driver["url"], tmp_path, 4000)
+    assert result == {
+        "listInitially": True,
+        "wide": result["wide"],
+        "centered": result["centered"],
+        "feedPath": "/feed",
+        "feedVisible": True,
+        "reloadedFeed": True,
+        "listPath": "/list",
+        "backFeed": True,
+        "forwardList": True,
+        "reloadedList": True,
+        "persistedCentered": True,
+        "rootFeed": True,
+    }
+    assert result["wide"] > result["centered"]

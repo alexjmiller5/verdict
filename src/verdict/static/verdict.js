@@ -75,8 +75,13 @@
     const sidebar = el("aside", { class: "vd-feed-sidebar", "aria-label": "Current review", hidden: "" });
     const jump = el("select", { "aria-label": "Jump to review", class: "vd-feed-jump" });
     sidebar.append(jump); document.body.append(sidebar);
+    const widthToggle = el("button", { type: "button", class: "vd-width-toggle", onclick: () => applyWidth(!index.classList.contains("vd-full-width")) });
+    index.querySelector(".vd-view-switch").append(widthToggle);
     const applyWidth = (wide) => {
       index.classList.toggle("vd-full-width", wide);
+      widthToggle.textContent = wide ? "Centered view" : "Full width";
+      widthToggle.setAttribute("aria-label", wide ? "Use centered layout" : "Use full width layout");
+      widthToggle.setAttribute("aria-pressed", String(wide));
       try { localStorage.setItem("verdict:full-width", String(wide)); } catch {}
       feed.querySelectorAll("iframe").forEach((f) => f.verdictSetWidth?.(wide));
     };
@@ -134,8 +139,8 @@
       feed.querySelector(".vd-feed-empty").hidden = hasPosts;
       bulk.querySelectorAll("button").forEach((button) => { button.disabled = !hasPosts; });
     };
-    index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      const showFeed = button.dataset.view === "feed";
+    const setView = (view) => {
+      const showFeed = view === "feed";
       if (showFeed) {
         feedReady = true;
         list.querySelectorAll('[data-status="open"]').forEach((row) => {
@@ -210,10 +215,18 @@
       document.body.classList.toggle("vd-feed-active", showFeed);
       sidebar.hidden = !showFeed || !activePost;
       if (showFeed && !activePost) visiblePost();
-      index.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+      index.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
       emptyFeed();
       if (showFeed && feedFocus?.isConnected) feedFocus.focus();
+    };
+    index.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
+      const view = button.dataset.view;
+      if (location.pathname !== `/${view}`) history.pushState(null, "", `/${view}`);
+      setView(view);
     }));
+    const routeView = () => setView(location.pathname === "/list" ? "list" : "feed");
+    addEventListener("popstate", routeView);
+    routeView();
     document.querySelectorAll(".vd-index [data-action]").forEach((button) => {
       button.addEventListener("click", () => {
         const row = button.closest("[data-review]");
@@ -695,7 +708,7 @@
     poll();
   };
 
-  const start = () => location.pathname === "/" ? bootIndex() : boot();
+  const start = () => ["/", "/feed", "/list"].includes(location.pathname) ? bootIndex() : boot();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 })();

@@ -111,7 +111,8 @@ is already done or closed.
 ## API
 
 ```
-GET  /                         all reviews, open oldest first, finished last
+GET  /, /feed                  open review feed
+GET  /list                     all reviews, open oldest first, finished last
 GET  /r/<id>/[file]            the page (+ injected client) and its files
 POST /api/reviews              {title, task, files:{name: base64}} -> {id, url, number}
 GET  /api/reviews              list (summaries)
@@ -196,10 +197,11 @@ Mobile text fields use 16px text and the review/index use fast-tap manipulation
 behavior to reduce accidental zoom. Browser-controlled pinch zoom remains subject
 to the browser; a web page cannot promise to disable Safari's zoom policy.
 
-The main page offers List and Feed views. Feed uses the available reading width
-by default; its sidebar's Centered view / Full width toggle is also available on
-standalone reviews. The preference is stored in browser local storage. The index
-reserves a root scrollbar so mode changes do not add a scrollbar shift.
+The main page offers List at /list and Feed at /feed; / opens Feed. Switching
+views updates browser history, and reload and Back/Forward preserve the selected
+view. Both views use the available reading width by default and share a Centered
+view / Full width toggle, also available on standalone reviews. The preference is
+stored in browser local storage. The index reserves a root scrollbar so mode changes do not add a scrollbar shift.
 Feed contains only open reviews, each with a title link opening its standalone
 page in a separate tab and its own same-origin iframe. Author styles, relative
 assets, selectors, comments and save queues remain isolated in that frame.

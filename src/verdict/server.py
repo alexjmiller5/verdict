@@ -180,7 +180,7 @@ def make_server(store: Store, host: str, port: int) -> ThreadingHTTPServer:
         def do_GET(self):
             url = urlsplit(self.path)
             parts = url.path.split("/")
-            if url.path == "/":
+            if url.path in ("/", "/feed", "/list"):
                 return self.send(200, index_page(store.list()), "text/html; charset=utf-8")
             if parts[1] == "_verdict" and len(parts) == 3:
                 return self.asset(parts[2])
